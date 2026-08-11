@@ -4,8 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../lib/workflow.sh
 source "$ROOT/lib/workflow.sh"
-[[ "$(<"$ROOT/VERSION")" == 0.1.0-rc.9 ]]
-rg -Fq '## 0.1.0-rc.9 - 2026-08-04' "$ROOT/CHANGELOG.md"
+[[ "$(<"$ROOT/VERSION")" == 0.1.0-rc.10 ]]
+rg -Fq '## 0.1.0-rc.10 - 2026-08-12' "$ROOT/CHANGELOG.md"
 rg -Fq 'orichum --version' "$ROOT/docs/cli-reference.md"
 rg -Fq '[Changelog](CHANGELOG.md)' "$ROOT/README.md"
 rg -Fq 'orichum sessions cleanup' \

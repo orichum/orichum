@@ -4,6 +4,42 @@ All notable Orichum changes are recorded here.
 
 ## Unreleased
 
+## 0.1.0-rc.10 - 2026-08-12
+
+### Added
+
+- Projects can commit a strict `.orichum/models.json` that maps the controller
+  and five runtime specialist roles to approved machine-local logical models
+  without exposing providers, accounts, credentials, or fallback policy.
+- Route requests now carry opaque correlation IDs and redacted lifecycle
+  telemetry covering selected routes, response state, byte counts, duration,
+  failure stage, and failure kind.
+
+### Changed
+
+- `orichum configure` now uses a compact project dashboard, progressive
+  disclosure for model, account, and advanced operations, explicit review and
+  apply behavior, and safe pending-change exit handling.
+- LeanCTX keeps a smaller default resident tool-schema surface, defers optional
+  context tools to provider-native search, disables duplicate rule injection,
+  and reports more accurate rolling economics.
+- Project model mappings are discovered nearest-first within the configured
+  context, converted to ephemeral in-memory stacks, shown as authoritative in
+  configure, and applied only to fresh session resolution.
+
+### Fixed
+
+- Streaming responses are prepared within a bounded prelude and may retry once
+  on the frozen fallback only before client-visible output; incomplete streams
+  after output are reported without replaying model or tool execution.
+- SSE validation now handles LF, CRLF, bare-CR, and colonless `data` fields,
+  detects premature EOF and advertised-length truncation, and reports exact
+  forwarded byte counts.
+- Searchable configure menus can no longer accept a hidden default selection
+  after filtering.
+- Native release acceptance now follows the simplified configure dashboard
+  labels and exit position.
+
 ## 0.1.0-rc.9 - 2026-08-04
 
 ### Changed

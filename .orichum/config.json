@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "controller": "gpt-5.6-terra",
+  "agents": {
+    "repository-explorer": "gpt-5.6-terra",
+    "repository-verifier": "gpt-5.6-terra",
+    "correctness-critic": "gpt-5.6-terra",
+    "architecture-advisor": "gpt-5.6-sol",
+    "implementation-worker": "gpt-5.6-sol"
+  },
+  "jiraProfile": null,
+  "githubAccount": "alupao"
+}

@@ -118,22 +118,25 @@ class ConfigureWizardTests(unittest.TestCase):
         self.assertEqual(dict(dashboard)["Changes"], "None")
         self.assertIn("verify routes", io.choice_details[0][2])
 
-    def test_project_model_file_is_shown_as_authoritative_and_read_only(
+    def test_project_configuration_is_shown_as_authoritative_and_read_only(
         self,
     ) -> None:
-        source = Path("/work/acme/.orichum/models.json")
+        source = Path("/work/acme/.orichum/config.json")
         snapshot = replace(
             _snapshot(),
             project_models_path=source,
             project_models_digest="a" * 64,
             project_models_checked=True,
+            project_services_managed=True,
+            jira_profile="work",
+            github_account="alupao",
         )
         services = replace(
             self.services(),
             load_snapshot=lambda paths, config, project: snapshot,
             refresh_snapshot=lambda paths, config, project: snapshot,
         )
-        io = ScriptedUI(["Models", "Exit"])
+        io = ScriptedUI(["Models", "Advanced settings", "Exit"])
 
         status = run_configure(
             {},
@@ -148,10 +151,14 @@ class ConfigureWizardTests(unittest.TestCase):
             rows for title, rows in io.sections if title == "Orichum configuration"
         )
         self.assertEqual(dict(dashboard)["Profile"], "Project file")
-        project_file = next(
-            rows for title, rows in io.sections if title == "Project model file"
-        )
-        self.assertEqual(dict(project_file)["File"], str(source))
+        project_files = [
+            rows for title, rows in io.sections if title == "Project configuration"
+        ]
+        self.assertEqual(len(project_files), 2)
+        for project_file in project_files:
+            self.assertEqual(dict(project_file)["File"], str(source))
+            self.assertEqual(dict(project_file)["Jira profile"], "work")
+            self.assertEqual(dict(project_file)["GitHub account"], "alupao")
         self.assertFalse(
             any("Recommended setup" in labels for labels in io.choice_labels)
         )

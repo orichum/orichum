@@ -47,6 +47,7 @@ class InstallControlPlaneError(RuntimeError):
 
 _BOOTSTRAP_FILES = (
     "projects.json",
+    "jira-profiles.json",
     "providers.json",
     "plugins.json",
     "runtime.json",

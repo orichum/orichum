@@ -62,22 +62,25 @@ the controller alone calls overview and durable knowledge. This keeps worker
 reads compressed without duplicating Orichum's orchestration or allowing
 concurrent memory writes.
 
-`mcp-atlassian` is started only when the resolved project declares Jira
-credentials. The process reads that project's private URL, username, and token
-at startup. The session MCP file contains only the project root.
+`mcp-atlassian` is started only when the resolved project declares direct Jira
+credentials or `.orichum/config.json` selects a private named profile. The
+process loads the selected private URL, username, and token at startup. The
+session MCP file contains only the project root and optional profile alias.
 
 ## Launch sequence
 
 1. Resolve the configured containing project context.
-2. Discover and strictly validate the nearest optional
-   `.orichum/models.json` within that context.
-3. Validate machine configuration and optional Atlassian/GitHub identities.
-4. Discover live provider/model routes and select eligible accounts.
-5. Build any repository mapping as an in-memory stack and freeze the logical
-   session route and integrity digests.
-6. Materialize the controller plugin, strict MCP file, and private LeanCTX
-   contract.
-7. Bind the verified project and optional external-tool identities.
+2. Discover and strictly validate the nearest optional `.orichum/config.json`
+   within that context, with legacy model-only `models.json` compatibility.
+3. Resolve its service account names against private Jira profiles and existing
+   GitHub authentication; explicit `null` disables a service.
+4. Validate machine configuration and discover live provider/model routes.
+5. Select eligible provider accounts and build the repository model mapping as
+   an in-memory stack.
+6. Freeze the logical model route and the physical project's service selectors
+   and integrity digest.
+7. Materialize the controller plugin, strict MCP file, private LeanCTX contract,
+   and optional external-tool identities.
 8. Start and health-check the session's Claudex translator.
 9. Launch Claude Code.
 

@@ -139,7 +139,8 @@ next available port.
 | Content-addressed runtime release | `~/.orichum/runtime/releases/DIGEST/` |
 | Managed binaries | `~/.orichum/bin/` |
 | Provider credentials | `~/.orichum/auth/` |
-| Project Jira credentials | `~/.orichum/config/projects.json` |
+| Legacy project Jira credentials | `~/.orichum/config/projects.json` |
+| Named Jira profiles | `~/.orichum/config/jira-profiles.json` |
 | Managed Python tools | `~/.orichum/tools/bin/` |
 | Managed Python versions | `~/.orichum/python/` |
 | Stable private Python | `~/.orichum/bin/orichum-python` |

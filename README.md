@@ -56,9 +56,10 @@ That resumable setup asks for the provider, account name, and projects folder
 (default `~/projects`). It registers the first account as Primary in Orichum's
 internal `shared` group, creates a compatible recommended model stack, maps the
 projects folder, reconciles services, and runs the final health check. Orichum
-installs its runtime and all user-managed state under `~/.orichum`;
-the checkout remains source code only, so editing configuration never dirties
-the repository and moving the checkout does not break the installed command.
+installs its runtime and private user-managed state under `~/.orichum`. A
+repository may intentionally commit one `.orichum/config.json` containing only
+its model choices and Jira/GitHub account names; credentials remain outside the
+repository. Moving the checkout does not break the installed command.
 Later `./install.sh` runs quickly when everything is already verified and
 healthy. Use `./install.sh --upgrade` when you want Orichum to refresh managed
 tools within its release constraints and run their complete probes; the full
@@ -132,12 +133,34 @@ are administering another configured project. The low-level provider, stack,
 and context commands remain available under the guided Advanced area and for
 automation.
 
+A project can keep its simple choices in one visible `.orichum/config.json`:
+
+```json
+{
+  "schemaVersion": 1,
+  "controller": "gpt-5.6-terra",
+  "agents": {
+    "repository-explorer": "gpt-5.6-terra",
+    "repository-verifier": "gpt-5.6-terra",
+    "correctness-critic": "gpt-5.6-terra",
+    "architecture-advisor": "gpt-5.6-sol",
+    "implementation-worker": "gpt-5.6-sol"
+  },
+  "jiraProfile": null,
+  "githubAccount": "alupao"
+}
+```
+
+Edit this file directly to change project models or account names. It never
+contains Jira tokens, GitHub tokens, provider credentials, or routing policy.
+
 ## Daily use
 
 | What you want to do | Command |
 |---|---|
 | Start in the current project | `orichum` |
 | Configure accounts, backups, models, or project settings | `orichum configure` |
+| Edit project models and Jira/GitHub account names | `.orichum/config.json` |
 | Check project mappings | `orichum context list` |
 | Configure project Jira | `orichum context jira ROOT` |
 | Remove project Jira | `orichum context jira ROOT --remove` |
@@ -178,8 +201,9 @@ The complete command map is in the [CLI reference](docs/cli-reference.md).
   See [LeanCTX](docs/leanctx.md).
 - **Plugins:** declare and synchronize optional Claude Code plugins through
   Orichum. See [Plugins](docs/plugins.md).
-- **Jira:** configure private Jira credentials on a project root. Orichum loads
-  `mcp-atlassian` only for sessions below that root. See
+- **Jira:** keep credentials private and select a named Jira profile through the
+  project's `.orichum/config.json`. Orichum loads `mcp-atlassian` only for
+  sessions that resolve a Jira binding. See
   [MCP integrations](docs/mcp-integrations.md).
 - **Specialist agents:** let the controller delegate bounded exploration,
   review, architecture, or implementation work while keeping one writer. See
@@ -197,10 +221,10 @@ flowchart LR
     S -. "only for a bound project" .-> D["mcp-atlassian"]
 ```
 
-The directory where you run `orichum` selects the project configuration.
-Orichum opens a private session using the chosen model and account, then makes
-only the relevant project context available. You do not select a tool profile
-or manually route each request.
+The directory where you run `orichum` selects the project configuration. When
+present, `.orichum/config.json` supplies the project's models and Jira/GitHub
+account names. Orichum opens a private session using those choices and exposes
+only the relevant project context; you do not manually route each request.
 
 Read [Architecture](docs/architecture.md) for service ownership, security
 boundaries, session isolation, and the internal request path.

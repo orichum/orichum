@@ -16,37 +16,66 @@ orichum config paths
 |---|---|
 | `model-stacks.json` | Models, families, controller candidates, and specialist role candidates |
 | `providers.json` | Provider adapters, auth types, pools, and family route order |
-| `projects.json` | Parent paths, stack overrides, pools, GitHub identities, and optional Jira credentials |
+| `projects.json` | Parent paths, stack overrides, pools, default GitHub identities, and optional legacy Jira credentials |
+| `jira-profiles.json` | Private named Jira URL, username, and API-token profiles selected by repositories |
 | `plugins.json` | Optional Claude Code marketplaces and plugins |
 | `runtime.json` | Controller effort, tool concurrency, and session subagent limit |
 | `controller-policy.md` | Product-managed sole-writer and deterministic tool-routing policy |
 | `accounts.json` | Private named-account registry managed by provider commands |
 | `stack-bindings.json` | Private machine-local named-account locks |
 
-A project may also commit `.orichum/models.json`. This deliberately narrow file
-contains only the controller logical model and the five specialist logical
-models. It cannot contain providers, accounts, credentials, pools, fallbacks,
-commands, or tools. The referenced logical models must already exist in the
-machine-local `model-stacks.json`.
+A project may commit one `.orichum/config.json` file containing its controller,
+five specialist models, Jira profile name, and GitHub account name. For example:
 
-The nearest valid project file between the launch directory and matched context
-root overrides only model assignment for fresh sessions. Machine-local account
-availability, provider routes, and credentials still control how those models
-are reached. Because repository write access grants model-selection authority,
-review changes to this file like other executable-development configuration.
+```json
+{
+  "schemaVersion": 1,
+  "controller": "gpt-5.6-terra",
+  "agents": {
+    "repository-explorer": "gpt-5.6-terra",
+    "repository-verifier": "gpt-5.6-terra",
+    "correctness-critic": "claude-sonnet-5",
+    "architecture-advisor": "claude-opus-5",
+    "implementation-worker": "gpt-5.6-sol"
+  },
+  "jiraProfile": "work",
+  "githubAccount": "alupao"
+}
+```
 
-Jira is the deliberate local exception to credential references:
-`orichum context jira ROOT` stores its URL, username, and token together on
-that project entry in private `projects.json`. The installed file is mode
-`0600`, contains the raw token, and must not be committed, shared, or copied
-into a repository. `orichum config show` redacts `apiToken`; `orichum context
-list` shows only the Jira URL. This keeps each project's Jira identity
-independent without another account registry.
+The file contains names only. It cannot contain provider routes, credentials,
+tokens, service URLs, commands, environment variables, account pools, or
+fallback policy. Logical models must already exist in machine-local
+`model-stacks.json`; a non-null Jira profile must exist in private
+`jira-profiles.json`; and a non-null GitHub account must be logged in through
+`gh auth`.
 
-`projects.json`, `accounts.json`, `stack-bindings.json`, authentication data,
-and session state are private machine-local files and must not be committed.
-The project-local `.orichum/models.json` is the only repository configuration
-exception and contains no secrets.
+Orichum searches from the canonical launch directory to the matched context
+root and uses the nearest file. An invalid nearest file fails closed. Explicit
+`null` disables the corresponding Jira or GitHub integration instead of
+inheriting its machine-local default. Legacy `.orichum/models.json` files remain
+supported for model assignments only; they cannot coexist with `config.json`
+in the same directory.
+
+`orichum context jira ROOT` remains the compatible machine-local default and
+stores its URL, username, and token in private `projects.json`. Named profiles
+selected by `.orichum/config.json` live in private `jira-profiles.json`:
+
+```json
+{
+  "schemaVersion": 1,
+  "profiles": {
+    "work": {
+      "url": "https://example.atlassian.net",
+      "username": "person@example.com",
+      "apiToken": "..."
+    }
+  }
+}
+```
+
+Both machine-local files are mode `0600` and must not be committed or shared.
+Jira tokens and GitHub authentication never enter `.orichum/config.json`.
 
 The installer preserves user-managed JSON configuration. Reconciliation
 normalizes `projects.json` to the current schema while preserving active
@@ -73,10 +102,9 @@ selected data root so the CLI and resident route service resolve the same
 state.
 
 Prefer `orichum stack configure`, `orichum provider account`,
-`orichum context`, `orichum context jira`, and `orichum plugin`
-commands over direct machine-local JSON editing. Edit repository
-`.orichum/models.json` directly when a project intentionally owns its simple
-role-to-model mapping.
+`orichum context`, `orichum context jira`, and `orichum plugin` commands over
+direct machine-local JSON editing. Edit repository `.orichum/config.json`
+directly when the project owns its models and service account names.
 
 Orichum's private LeanCTX MCP uses blocklist-only shell execution so arbitrary
 finite CLIs work without changing `~/.config/lean-ctx/config.toml`. Project

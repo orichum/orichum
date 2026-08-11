@@ -1,12 +1,8 @@
 #!/usr/bin/env python3
 import json
-import os
-from pathlib import Path
 import tempfile
 import unittest
-
-
-REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+from pathlib import Path
 
 from integrations.common.atlassian_mcp import (
     AtlassianConfig,
@@ -44,6 +40,12 @@ class AtlassianMcpTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.config.chmod(0o600)
+        self.profiles = self.root / "jira-profiles.json"
+        self.profiles.write_text(
+            json.dumps({"schemaVersion": 1, "profiles": {}}) + "\n",
+            encoding="utf-8",
+        )
+        self.profiles.chmod(0o600)
 
     def test_project_context_stores_one_complete_jira_configuration(self) -> None:
         configure_project_atlassian(
@@ -66,8 +68,37 @@ class AtlassianMcpTests(unittest.TestCase):
             },
         )
         self.assertEqual(self.config.stat().st_mode & 0o777, 0o600)
-        loaded = load_project_atlassian(self.config, self.project)
+        loaded = load_project_atlassian(self.config, self.profiles, self.project)
         self.assertEqual(loaded.api_token, "xebia-token")
+
+    def test_named_profile_replaces_direct_project_credentials(self) -> None:
+        self.profiles.write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "profiles": {
+                        "work": {
+                            "url": "https://work.atlassian.net",
+                            "username": "work@example.com",
+                            "apiToken": "work-token",
+                        }
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self.profiles.chmod(0o600)
+
+        loaded = load_project_atlassian(
+            self.config,
+            self.profiles,
+            self.project,
+            "work",
+        )
+
+        self.assertEqual(loaded.url, "https://work.atlassian.net")
+        self.assertEqual(loaded.api_token, "work-token")
 
     def test_mcp_environment_forwards_only_process_basics_and_jira(self) -> None:
         environment = mcp_environment(
@@ -107,6 +138,7 @@ class AtlassianMcpTests(unittest.TestCase):
             "route": {
                 "contextRootReal": str(self.project),
                 "atlassianConfigured": True,
+                "jiraProfile": "work",
             }
         }
         unconfigured = {
@@ -118,7 +150,7 @@ class AtlassianMcpTests(unittest.TestCase):
 
         payload = _session_mcp_payload(configured, data_root=self.root)
         server = payload["mcpServers"]["atlassian"]
-        self.assertEqual(server["args"], [str(self.project)])
+        self.assertEqual(server["args"], [str(self.project), "work"])
         self.assertNotIn("xebia-token", json.dumps(payload))
         self.assertNotIn(
             "atlassian",

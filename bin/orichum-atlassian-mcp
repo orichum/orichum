@@ -15,4 +15,7 @@ ORICHUM_PYTHON="$(resolve_orichum_python "$WORKFLOW_DATA_ROOT")"
 CONFIG_ROOT="$(workflow_config_dir)"
 cd "$WORKFLOW_ROOT"
 exec "$ORICHUM_PYTHON" -B -m integrations.common.atlassian_mcp \
-  "$WORKFLOW_DATA_ROOT" "$CONFIG_ROOT/projects.json" "$@"
+  "$WORKFLOW_DATA_ROOT" \
+  "$CONFIG_ROOT/projects.json" \
+  "$CONFIG_ROOT/jira-profiles.json" \
+  "$@"

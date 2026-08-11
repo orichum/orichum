@@ -302,11 +302,33 @@ apply changes**. Nothing is written before that review.
 
 ## Models
 
-If the nearest project path contains `.orichum/models.json`, the dashboard
-shows **Profile: Project file**. The Models action displays the authoritative
-absolute path instead of offering conflicting wizard edits. Open that JSON file
-in an editor to change the controller and five specialist logical-model IDs.
-Accounts, repair, and readiness remain guided.
+If the nearest project path contains `.orichum/config.json`, the dashboard
+shows **Profile: Project file**. Models and Advanced settings display the same
+authoritative path instead of offering conflicting wizard edits. Open that one
+file to change the controller, five specialist models, Jira profile name, or
+GitHub account name:
+
+```json
+{
+  "schemaVersion": 1,
+  "controller": "gpt-5.6-terra",
+  "agents": {
+    "repository-explorer": "gpt-5.6-terra",
+    "repository-verifier": "gpt-5.6-terra",
+    "correctness-critic": "claude-sonnet-5",
+    "architecture-advisor": "claude-opus-5",
+    "implementation-worker": "gpt-5.6-sol"
+  },
+  "jiraProfile": "work",
+  "githubAccount": "alupao"
+}
+```
+
+The Jira alias must exist in private `~/.orichum/config/jira-profiles.json`.
+The GitHub account must already exist in `gh auth`. Use `null` to disable either
+integration. Tokens, URLs, usernames, credential paths, environment values, and
+remote includes are rejected from the repository file. Accounts, repair, and
+readiness remain guided.
 
 Without a project file, the **Models** menu uses progressive disclosure:
 
@@ -475,7 +497,9 @@ flow and shows exact command entry points:
 
 Use these commands for automation, custom account-group placement, direct
 account maintenance, ordered stack candidates, named-account locks, GitHub
-identity, Jira, and other focused project-context operations.
+identity, Jira, and other focused project-context operations. When
+`.orichum/config.json` is active, Advanced settings shows its path, Jira
+profile, and GitHub account before the command handoffs.
 
 ## What configuration changes affect
 
@@ -492,12 +516,12 @@ Start a new session to use changed account selection or model assignments. Use
 an explicit fork when moving work to another stack or model family with a
 bounded handoff.
 
-Accounts, authentication, sessions, provider routing, project contexts, and
-other control-plane data are machine-local private state. They must not be
-committed or copied into a repository. The deliberate exception is
-`.orichum/models.json`, which may be committed because it contains only logical
-model assignments and no credentials or account policy. Inspect private
-locations with:
+Accounts, authentication, sessions, provider routing, project contexts, Jira
+profile definitions, and other control-plane data are machine-local private
+state. They must not be committed or copied into a repository. The deliberate
+repository exception is `.orichum/config.json`; it contains logical model
+assignments and external-service account names, never credentials or
+account-pool policy. Inspect private locations with:
 
 ```bash
 orichum config paths

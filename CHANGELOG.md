@@ -4,6 +4,14 @@ All notable Orichum changes are recorded here.
 
 ## Unreleased
 
+## 0.1.0-rc.11 - 2026-08-12
+
+### Changed
+
+- Project-owned model assignments, Jira profile name, and GitHub account name
+  now live together in one `.orichum/config.json`; legacy model-only
+  `.orichum/models.json` files remain supported.
+
 ## 0.1.0-rc.10 - 2026-08-12
 
 ### Added

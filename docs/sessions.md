@@ -29,6 +29,10 @@ Every launch re-resolves and validates the project context and live services.
 A newly created logical session then freezes its selected primary route and at
 most one compatible fallback.
 
+If the launch path resolves a valid `.orichum/models.json`, a fresh logical
+session uses that repository mapping before freezing routes. Later edits or
+deletion of the file does not alter the stored logical session.
+
 ## Resume
 
 ```bash
@@ -58,6 +62,10 @@ orichum fork SESSION_ID \
 The parent remains resumable. The child does not receive hidden provider state
 or the full parent transcript.
 
+A fork without `--stack` inherits the parent's frozen routes and ignores the
+current repository model file. Supplying `--stack` is explicit session-scoped
+intent: Orichum resolves that named machine-local stack instead. Resume always
+keeps the original frozen routes.
 Concurrent sessions use separate physical run directories, MCP files, plugin
 copies, and Claudex translation ports. CLIProxyAPI, the LeanCTX wire proxy, and
 the Orichum route proxy are shared, while each physical session owns its

@@ -26,7 +26,7 @@ cd ~/projects/my-app
 orichum configure
 ```
 
-Choose **Accounts and providers**. Orichum lists configured providers and named
+Choose **Accounts**. Orichum lists configured providers and named
 accounts, runs the SSH-safe login flow, asks for a friendly name, derives the
 project placement and account preference, and previews the complete change.
 The backup flow fixes the provider to the selected primary account and derives

@@ -110,7 +110,7 @@ class TerminalUI:
             lines = [title]
             for ordinal, index in enumerate(visible, start=1):
                 option = normalized[index]
-                marker = option.marker or ("current" if index == selected else "")
+                marker = option.marker
                 suffix = f" [{marker}]" if marker else ""
                 detail = f"  {option.detail}" if option.detail else ""
                 lines.append(
@@ -133,7 +133,7 @@ class TerminalUI:
                 if not visible:
                     self.show("No matches.")
                     visible = tuple(range(len(normalized)))
-                elif len(visible) == 1:
+                elif selected not in visible:
                     selected = visible[0]
                 continue
             if not answer:

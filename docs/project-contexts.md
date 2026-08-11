@@ -3,8 +3,8 @@
 A project context maps a parent directory to its model stack, account pools,
 GitHub identity, and optional Jira configuration.
 
-The parent does not need to be a Git repository. Launches from any nested
-repository inherit the longest matching configured parent.
+The parent does not need to be a Git repository. Launches from nested
+repositories inherit the configured containing context.
 
 ## Add a context
 
@@ -39,6 +39,17 @@ orichum context remove ~/personal --yes
 
 Repositories added below a configured parent inherit the mapping
 automatically. No context refresh command or Git hook is required.
+
+A nested repository can override only its controller and specialist logical
+models with `.orichum/models.json`. Discovery starts at the canonical launch
+directory, walks upward to and including the matched context root, and uses the
+nearest file. Files above the context root are ignored. A worktree inside the
+context uses its own nearer file; a worktree outside every configured context
+remains unmapped.
+
+This repository file does not create a second project context and cannot change
+account pools, GitHub, Jira, providers, credentials, or fallback policy. Those
+settings continue to come from the machine-local context.
 
 `orichum context jira ROOT` writes the URL, username, and token directly into
 the matching entry in private machine-local `projects.json`. There is no

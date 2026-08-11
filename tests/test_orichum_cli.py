@@ -24,6 +24,7 @@ from integrations.common import stack_bindings
 from integrations.common.configure_state import (
     ConfigurationDraft,
     PendingAccount,
+    selections_for_stack,
 )
 from integrations.common.leanctx_monitor import (
     LeanctxGainSummary,
@@ -38,6 +39,7 @@ from integrations.common.stack_bindings import (
     StackBindings,
     save_stack_bindings,
 )
+from integrations.common.stack_definition import serialize_model_stacks
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -142,7 +144,7 @@ class OrichumCliTests(unittest.TestCase):
         )
         help_text = configure.format_help()
         self.assertIn(
-            "accounts, models, project settings, and repair",
+            "models, accounts, health, and advanced settings",
             help_text,
         )
         self.assertNotIn("candidate", help_text.casefold())
@@ -255,6 +257,79 @@ class OrichumCliTests(unittest.TestCase):
             paths["config"] / "projects.json",
             snapshot.target.root,
             orichum_cli.managed_stack_name(snapshot.target.root),
+            snapshot.stacks.stacks,
+        )
+
+    def test_configuration_apply_switches_to_existing_profile_without_rebuild(
+        self,
+    ) -> None:
+        from tests.test_configure_state import _snapshot_with_alternate_profile
+
+        snapshot = _snapshot_with_alternate_profile()
+        draft = ConfigurationDraft.from_snapshot(snapshot).with_profile(
+            replace(snapshot.target, stack_name="quality"),
+            selections_for_stack(snapshot, "quality"),
+        )
+        paths = {
+            "config": self.root / "config",
+            "data": self.root / "data",
+        }
+        paths["config"].mkdir(mode=0o700)
+        stack_snapshot = SimpleNamespace(
+            stacks=snapshot.stacks,
+            bindings=snapshot.bindings,
+        )
+        with (
+            mock.patch.object(
+                orichum_cli,
+                "load_accounts",
+                return_value=snapshot.accounts,
+            ),
+            mock.patch.object(
+                orichum_cli,
+                "load_stack_snapshot",
+                return_value=stack_snapshot,
+            ),
+            mock.patch.object(
+                orichum_cli,
+                "load_configuration_snapshot",
+                return_value=snapshot,
+            ),
+            mock.patch.object(
+                orichum_cli,
+                "stack_is_live_compatible",
+                return_value=True,
+            ),
+            mock.patch.object(orichum_cli, "build_managed_stack") as build,
+            mock.patch.object(orichum_cli, "save_stack") as save,
+            mock.patch.object(
+                orichum_cli,
+                "assign_stack_to_context",
+            ) as assign,
+            mock.patch.object(
+                orichum_cli,
+                "control_plane_transaction",
+                return_value=contextlib.nullcontext(),
+            ),
+            mock.patch.object(
+                orichum_cli,
+                "stack_binding_transaction",
+                return_value=contextlib.nullcontext(),
+            ),
+        ):
+            orichum_cli._apply_configuration_draft(
+                paths,
+                object(),
+                snapshot,
+                draft,
+            )
+
+        build.assert_not_called()
+        save.assert_called_once()
+        assign.assert_called_once_with(
+            paths["config"] / "projects.json",
+            snapshot.target.root,
+            "quality",
             snapshot.stacks.stacks,
         )
 
@@ -433,6 +508,344 @@ class OrichumCliTests(unittest.TestCase):
 
         save.assert_not_called()
         assign.assert_not_called()
+
+    def test_project_model_mapping_replaces_stack_and_ignores_candidate_locks(
+        self,
+    ) -> None:
+        from tests.test_configure_state import _snapshot
+
+        snapshot = _snapshot()
+        project = self.root / "project"
+        launch = project / "src"
+        launch.mkdir(parents=True)
+        directory = project / ".orichum"
+        directory.mkdir()
+        document = {
+            "schemaVersion": 1,
+            "controller": "gpt-5.6-sol",
+            "agents": {
+                role: "gpt-5.6-sol" for role in orichum_cli.ROLES
+            },
+        }
+        (directory / "models.json").write_text(
+            json.dumps(document),
+            encoding="utf-8",
+        )
+        config = SimpleNamespace(
+            documents={
+                "model-stacks": serialize_model_stacks(snapshot.stacks),
+                "projects": {},
+            }
+        )
+        context = {
+            "launchDirReal": str(launch),
+            "route": {
+                "contextRootReal": str(project),
+                "modelStack": "balanced",
+            },
+        }
+        paths = {"config": self.root / "config"}
+
+        with mock.patch.object(orichum_cli, "load_stack_bindings") as load:
+            documents, stack_name, bindings, project_models = (
+                orichum_cli._session_model_inputs(paths, config, context)
+            )
+
+        load.assert_not_called()
+        assert project_models is not None
+        self.assertEqual(stack_name, project_models.stack_name)
+        self.assertIs(documents["model-stacks"], project_models.stacks)
+        self.assertEqual(bindings, StackBindings({}))
+        self.assertEqual(
+            project_models.stacks.stacks[stack_name].controller[0].providers,
+            ("openai",),
+        )
+
+    def test_new_session_uses_project_model_inputs(self) -> None:
+        project = self.root / "project"
+        launch = project / "src"
+        launch.mkdir(parents=True)
+        paths = {
+            "config": self.root / "config",
+            "data": self.root / "data",
+            "state": self.root / "state",
+        }
+        config = SimpleNamespace(
+            documents={"projects": {}, "providers": {}}
+        )
+        context = {
+            "launchDirReal": str(launch),
+            "route": {
+                "contextRootReal": str(project),
+                "accountPools": ["shared"],
+            },
+        }
+        session_documents = {"model-stacks": object()}
+        bindings = StackBindings({})
+        controller = object()
+        agents = {role: object() for role in orichum_cli.ROLES}
+        plan = SimpleNamespace(
+            stack="repository-local-test",
+            controller=controller,
+            agents=agents,
+            effective=object(),
+        )
+        logical = object()
+        physical = object()
+
+        with (
+            mock.patch.object(orichum_cli, "_verify_runtime"),
+            mock.patch.object(
+                orichum_cli,
+                "resolve_control_plane_context",
+                return_value=context,
+            ),
+            mock.patch.object(
+                orichum_cli,
+                "_session_model_inputs",
+                return_value=(
+                    session_documents,
+                    "repository-local-test",
+                    bindings,
+                    object(),
+                ),
+            ),
+            mock.patch.object(orichum_cli, "load_accounts", return_value=()),
+            mock.patch.object(orichum_cli, "validate_account_bindings"),
+            mock.patch.object(
+                orichum_cli,
+                "_live_models",
+                return_value=frozenset(),
+            ),
+            mock.patch.object(
+                orichum_cli,
+                "resolve_session_plan",
+                return_value=plan,
+            ) as resolve,
+            mock.patch.object(orichum_cli, "_validate_plan_routes"),
+            mock.patch.object(orichum_cli, "_validate_live_models"),
+            mock.patch.object(
+                orichum_cli,
+                "create_resolved_session",
+                return_value=physical,
+            ),
+            mock.patch.object(
+                orichum_cli,
+                "create_logical_session",
+                return_value=logical,
+            ),
+        ):
+            prepared = orichum_cli._prepare_new_session(
+                paths,
+                config,
+                launch_dir=launch,
+            )
+
+        self.assertIs(prepared.logical, logical)
+        self.assertIs(prepared.physical, physical)
+        self.assertIs(resolve.call_args.args[0], session_documents)
+        self.assertEqual(
+            resolve.call_args.kwargs["requested_stack"],
+            "repository-local-test",
+        )
+        self.assertIs(resolve.call_args.kwargs["bindings"], bindings)
+
+    def test_models_resolve_reports_project_source_and_explicit_stack_bypasses_it(
+        self,
+    ) -> None:
+        from tests.test_configure_state import _snapshot
+
+        snapshot = _snapshot()
+        project = self.root / "project"
+        launch = project / "src"
+        launch.mkdir(parents=True)
+        directory = project / ".orichum"
+        directory.mkdir()
+        source = directory / "models.json"
+        source.write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "controller": "gpt-5.6-sol",
+                    "agents": {
+                        role: "gpt-5.6-sol" for role in orichum_cli.ROLES
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        config = SimpleNamespace(
+            documents={
+                "model-stacks": serialize_model_stacks(snapshot.stacks),
+                "projects": {},
+            }
+        )
+        context = {
+            "launchDirReal": str(launch),
+            "route": {"contextRootReal": str(project)},
+        }
+
+        with mock.patch.object(
+            orichum_cli,
+            "resolve_control_plane_context",
+            return_value=context,
+        ):
+            project_result = orichum_cli._resolve_stack(
+                config,
+                None,
+                launch_dir=launch,
+            )
+            explicit_result = orichum_cli._resolve_stack(
+                config,
+                "balanced",
+                launch_dir=launch,
+            )
+
+        self.assertEqual(project_result["source"], str(source))
+        self.assertTrue(
+            str(project_result["stack"]).startswith("repository-local-")
+        )
+        self.assertEqual(explicit_result["stack"], "balanced")
+        self.assertNotIn("source", explicit_result)
+
+    def test_setup_readiness_rejects_invalid_project_model_mapping(self) -> None:
+        from tests.test_configure_state import _snapshot
+
+        snapshot = _snapshot()
+        project = self.root / "project"
+        project.mkdir()
+        directory = project / ".orichum"
+        directory.mkdir()
+        (directory / "models.json").write_text("{", encoding="utf-8")
+        config = SimpleNamespace(
+            documents={
+                "model-stacks": serialize_model_stacks(snapshot.stacks),
+                "projects": {},
+            }
+        )
+        context = {
+            "launchDirReal": str(project),
+            "route": {"contextRootReal": str(project)},
+        }
+
+        with (
+            mock.patch.object(orichum_cli, "_verify_runtime"),
+            mock.patch.object(
+                orichum_cli,
+                "resolve_control_plane_context",
+                return_value=context,
+            ),
+        ):
+            ready = orichum_cli._setup_project_ready(
+                {"config": self.root / "config"},
+                config,
+                project,
+            )
+
+        self.assertFalse(ready)
+
+    def test_project_model_mapping_blocks_configure_model_writes_and_drift(
+        self,
+    ) -> None:
+        from tests.test_configure_state import _snapshot
+
+        snapshot = _snapshot()
+        project = self.root / "project"
+        launch = project / "src"
+        launch.mkdir(parents=True)
+        directory = project / ".orichum"
+        directory.mkdir()
+        path = directory / "models.json"
+        document = {
+            "schemaVersion": 1,
+            "controller": "gpt-5.6-sol",
+            "agents": {
+                role: "gpt-5.6-sol" for role in orichum_cli.ROLES
+            },
+        }
+        path.write_text(json.dumps(document), encoding="utf-8")
+        base_document = serialize_model_stacks(snapshot.stacks)
+        project_models = orichum_cli.discover_project_models(
+            launch,
+            project,
+            snapshot.stacks,
+        )
+        assert project_models is not None
+        local = replace(
+            snapshot,
+            target=replace(
+                snapshot.target,
+                root=project,
+                stack_name=project_models.stack_name,
+            ),
+            stacks=project_models.stacks,
+            bindings=StackBindings({}),
+            launch_root=launch,
+            project_models_path=project_models.path,
+            project_models_digest=project_models.digest,
+            project_models_checked=True,
+        )
+        config = SimpleNamespace(documents={"model-stacks": base_document})
+        changed = ConfigurationDraft.from_snapshot(local).with_project(
+            replace(local.target, stack_name="balanced")
+        )
+
+        with self.assertRaisesRegex(orichum_cli.CliError, "edit that JSON file"):
+            orichum_cli._configuration_model_changes(config, local, changed)
+
+        path.write_text(
+            json.dumps({**document, "controller": "gpt-5.6-sol"}, indent=2),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(orichum_cli.CliError, "changed while"):
+            orichum_cli._configuration_model_changes(
+                config,
+                local,
+                ConfigurationDraft.from_snapshot(local),
+            )
+
+    def test_project_model_mapping_appearing_during_configure_is_rejected(
+        self,
+    ) -> None:
+        from tests.test_configure_state import _snapshot
+
+        snapshot = _snapshot()
+        project = self.root / "project"
+        launch = project / "src"
+        launch.mkdir(parents=True)
+        opened = replace(
+            snapshot,
+            target=replace(snapshot.target, root=project),
+            launch_root=launch,
+            project_models_checked=True,
+        )
+        config = SimpleNamespace(
+            documents={
+                "model-stacks": serialize_model_stacks(snapshot.stacks),
+                "projects": {},
+            }
+        )
+        directory = project / ".orichum"
+        directory.mkdir()
+        (directory / "models.json").write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "controller": "gpt-5.6-sol",
+                    "agents": {
+                        role: "gpt-5.6-sol" for role in orichum_cli.ROLES
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(orichum_cli.CliError, "changed while"):
+            orichum_cli._configuration_model_changes(
+                config,
+                opened,
+                ConfigurationDraft.from_snapshot(opened),
+            )
 
     def test_orichum_home_can_be_overridden_as_one_unit(self) -> None:
         home = self.root / "private-orichum"

@@ -276,120 +276,65 @@ during reconciliation while retaining the private log:
 orichum configure --verbose
 ```
 
-Configuration begins by showing the resolved project and these exact areas:
+## The configuration dashboard
+
+Configuration opens with one compact view of the effective project state:
 
 ```text
-Accounts and providers
-Models and agents
-Project settings
-Review and repair
-Advanced
+Orichum configuration
+  Project     /home/me/projects/my-app
+  Profile     balanced
+  Controller  gpt-5.6-sol
+  Accounts    2 available
+  Changes     None
+
+What do you want to change?
+1. Models             balanced · gpt-5.6-sol
+2. Accounts           2 available
+3. Check configuration  verify routes and repair services
+4. Advanced settings  GitHub, Jira, account maintenance, custom stacks
+5. Exit
+```
+
+The dashboard is shown again after each action. If a draft changes, **Changes**
+becomes **Ready to review** and **Check configuration** becomes **Review and
+apply changes**. Nothing is written before that review.
+
+## Models
+
+If the nearest project path contains `.orichum/models.json`, the dashboard
+shows **Profile: Project file**. The Models action displays the authoritative
+absolute path instead of offering conflicting wizard edits. Open that JSON file
+in an editor to change the controller and five specialist logical-model IDs.
+Accounts, repair, and readiness remain guided.
+
+Without a project file, the **Models** menu uses progressive disclosure:
+
+```text
+Recommended setup      Orichum chooses compatible models
+One model everywhere   the simplest custom setup
+Models by work type     separate research, review, and implementation
+Customize each role    full control over every specialist
+Switch profile          use another saved model stack
 Back
 ```
 
-Choices modify an in-memory draft. Nothing is saved until **Review and repair**
-is used to apply the draft.
+Every model comes from the gateway's live numbered list. Large lists are
+searchable, the current model is marked, and users never need to type model
+IDs.
 
-## Accounts and providers
+### Recommended setup
 
-The **Accounts and providers** menu contains:
+Orichum chooses compatible live models for the controller and every specialist
+role using the shipped recommendation policy. This is the shortest path for
+users who do not want to tune individual roles.
 
-```text
-Add an account
-Configure a backup account
-Change account preference
-Enable, disable, or remove an account
-Back
-```
-
-### Add an account
-
-Use **Add an account** for another independent account or provider.
-
-1. Choose a provider from the installed provider configuration.
-2. Complete or reuse its SSH-safe authentication.
-3. Enter a friendly account name.
-4. Choose where it is available:
-   - **Current project** uses the project's first current availability group.
-   - **All shared projects** uses Orichum's shared availability group.
-   - **Advanced placement** stops the guided account draft and directs you to
-     the low-level account commands for a custom group.
-5. Choose how Orichum should use the account:
-   - **Preferred** makes it the preferred account for that provider.
-   - **Additional equal-choice account** allows deterministic rotation for new
-     sessions when otherwise equally eligible.
-   - **Backup** gives it lower preference than the current primary account.
-
-The wizard derives the internal placement and priority from these plain-language
-choices. It does not ask for an account group or numeric priority.
-
-Authentication is saved securely as soon as login succeeds. If you go back or
-cancel before applying the configuration, the unregistered credential remains
-available for reuse during a later guided run.
-
-### Configure a backup account
-
-Use **Configure a backup account** when a known project account needs an
-explicit compatible fallback.
-
-1. Choose an active primary account that is already used by the project.
-2. Orichum fixes the provider to that primary account; a backup cannot
-   accidentally be created through another provider.
-3. Authenticate or reuse another credential for that provider.
-4. Enter a friendly name for the backup.
-5. Orichum derives the same availability group and a lower internal preference.
-
-If the current stack locks any model candidate to the primary account, the
-wizard also asks whether to:
-
-- **Allow PRIMARY with BACKUP [recommended]**, removing the lock so automatic
-  backup can be used; or
-- **Keep the account lock; do not enable automatic backup**.
-
-Fallback is frozen when a new logical session is created. It remains within
-the same logical model and model family. Existing sessions are not rebound.
-
-### Account maintenance currently handled by Advanced
-
-The guided menu displays **Change account preference** and **Enable, disable,
-or remove an account**, but the current release directs those operations to
-**Advanced**. Use:
-
-```bash
-orichum provider accounts
-orichum provider account --help
-```
-
-The low-level account commands support rename, priority, enable, disable,
-remove, and credential synchronization operations.
-
-## Models and agents
-
-The **Models and agents** menu contains:
-
-```text
-Use Orichum's recommendation
-Use one model for everything
-Choose models by work type
-Customize every role
-Back
-```
-
-Every model comes from the gateway's live, numbered list. Large lists are
-searchable. The wizard does not require typed model IDs and marks the current
-selection.
-
-### Use Orichum's recommendation
-
-Orichum chooses compatible live models for the controller and all specialist
-roles using the shipped recommendation policy.
-
-### Use one model for everything
+### One model everywhere
 
 Choose one live model once. It is assigned to the controller and every
 specialist role.
 
-### Choose models by work type
+### Models by work type
 
 Choose one live model for each work category:
 
@@ -401,138 +346,136 @@ Choose one live model for each work category:
 | Architecture | Architecture advisor |
 | Implementation | Implementation worker |
 
-### Customize every role
+### Customize each role
 
-Select roles individually and assign a live model to each:
+Assign models individually to the controller, repository explorer, repository
+verifier, correctness critic, architecture advisor, and implementation worker.
+This path preserves full mixed-provider and mixed-model control without putting
+that complexity in the default flow.
 
-- Controller
-- Repository explorer
-- Repository verifier
-- Correctness critic
-- Architecture advisor
-- Implementation worker
+### Switch profile
 
-This path supports mixed-model stacks, such as a GPT controller, lower-cost
-research workers, a Claude correctness critic, and a higher-capability
-architecture advisor.
+Choose another saved model stack that has compatible live routes for the
+project. Unusable profiles are hidden. If the current profile is no longer
+live, Orichum explains the state and lists the usable alternatives.
 
-The model list shows each model's provider and eligible named accounts. Model
-availability is checked again immediately before the draft is saved.
+Model availability is checked again immediately before a changed draft is
+saved. Orichum identifies affected roles rather than silently substituting a
+model when the live catalogue changes.
 
-## Project settings
+## Accounts
 
-The **Project settings** menu contains:
+The **Accounts** menu contains only actions that work in the guided flow:
 
 ```text
-Model profile or stack
-Account availability
-GitHub identity
-Jira configuration
-Another configured project
+Add an account             connect another provider or credential
+Add a backup account       automatic fallback for a current account
+Manage existing accounts   rename, priority, enable, disable, or remove
 Back
 ```
 
-### Model profile or stack
+### Add an account
 
-This is the fully guided project-setting path in the current release. Orichum
-lists only stacks that have compatible live routes for the selected project.
-The current stack is marked. Select another stack to add the assignment to the
-draft.
+Use **Add an account** for another independent account or provider.
 
-If the current stack is no longer live, the wizard explains that state and
-offers the compatible alternatives. If none are usable, no project-stack
-change is drafted.
+1. Choose a provider from the installed provider configuration.
+2. Complete or reuse its SSH-safe authentication.
+3. Enter a friendly account name.
+4. Choose **Current project**, **All shared projects**, or advanced placement.
+5. Choose whether the account is preferred, equal-choice, or a backup.
 
-### Project settings currently handled by Advanced
+The wizard derives internal account groups and priorities from these
+plain-language choices. Authentication is saved securely as soon as login
+succeeds and remains reusable if the configuration draft is later discarded.
 
-**Account availability**, **GitHub identity**, **Jira configuration**, and
-**Another configured project** currently direct users to **Advanced** while
-their guided flows are being completed.
+### Add a backup account
 
-Use the focused commands instead:
+Use **Add a backup account** when a project account needs an explicit compatible
+fallback.
+
+1. Choose an active primary account already used by the project.
+2. Authenticate or reuse another credential for the same provider.
+3. Enter a friendly backup name.
+4. Let Orichum reuse the primary availability group and derive a lower
+   preference.
+
+If a model candidate is locked to the primary account, the wizard recommends
+allowing both named accounts so automatic fallback can work. A fallback remains
+within the same logical model and family and is frozen into each new logical
+session. Existing sessions are not rebound.
+
+### Manage existing accounts
+
+The guided menu provides a direct, honest handoff instead of displaying actions
+that are not implemented there:
 
 ```bash
-orichum context --help
-orichum context list
-orichum context update --help
-orichum context jira --help
+orichum provider account --help
 ```
 
-To configure a different project with the guided areas that are already
-supported, leave the wizard and run:
+The focused command supports rename, priority, enable, disable, remove, and
+credential synchronization operations.
 
-```bash
-orichum configure --project PROJECT
-```
+## Review, apply, and exit
 
-## Review and repair
+When changes are pending, **Review and apply changes** shows:
 
-**Review and repair** shows the complete effective draft before any write:
+- the target project;
+- selected or pending primary and backup accounts;
+- the concrete model for every controller and specialist role; and
+- the reminder that existing sessions remain unchanged.
 
-- the target project folder;
-- new or selected primary and backup accounts;
-- the concrete model assigned to every controller and specialist role; and
-- the notice that changes apply to new sessions while existing sessions remain
-  unchanged.
-
-### Apply a changed draft
-
-When changes are pending, the final choices are:
+The final choices are:
 
 ```text
 Apply changes
-Go back
-Cancel
+Keep editing
+Discard and exit
 ```
 
-- **Apply changes** refreshes the live model catalogue, validates the draft,
-  writes the configuration transactionally, reconciles the local runtime, and
-  verifies the project.
-- **Go back** preserves the in-memory draft and returns to the configuration
-  menus.
-- **Cancel** exits without applying the draft. Completed authentication remains
-  private and reusable.
+**Apply changes** refreshes the live catalogue, validates the draft, writes the
+configuration transactionally, reconciles the local runtime, and verifies the
+project. **Keep editing** returns to the dashboard with the draft intact.
+**Discard and exit** leaves durable configuration unchanged; completed private
+authentication remains reusable.
 
-If model availability changed while the wizard was open, Orichum names only
-the affected roles and asks you to choose a currently live model for each. It
-does not silently substitute a different model.
+Selecting **Exit** from the dashboard while a draft is pending cannot silently
+lose work. Orichum asks whether to review and apply, discard, or keep editing.
 
 When several new accounts are part of one confirmed draft, application is
-compensating: if a later account or configuration write fails, Orichum removes
-the accounts created earlier by that failed application attempt.
+compensating: if a later write fails, Orichum removes accounts created earlier
+by that failed application attempt.
 
-### Repair without configuration changes
+## Check and repair
 
-When no changes are pending, **Review and repair** verifies the selected
-project. A healthy project reports that no changes are pending and the project
-is ready.
-
-If the project is configured but its owned local runtime is not ready, the
-wizard offers:
+With no pending changes, **Check configuration** verifies the complete project
+route. A healthy project reports that no changes are needed. If owned local
+services are not ready, Orichum offers:
 
 ```text
-Reconcile local services
+Repair local services
 Back
 ```
 
-Reconciliation runs the normal idempotent installer path and verifies the
-project again before reporting readiness.
+Repair uses the normal idempotent reconciliation path and verifies the project
+again before reporting readiness.
 
-## Advanced
+## Advanced settings
 
-The **Advanced** area does not open another large wizard. It shows the exact
-low-level help entry points:
+**Advanced settings** keeps expert capabilities one level away from the simple
+flow and shows exact command entry points:
 
 | Area | Command |
 |---|---|
-| Accounts | `orichum provider account --help` |
-| Providers | `orichum provider --help` |
-| Models | `orichum stack --help` |
-| Projects | `orichum context --help` |
+| Manage accounts | `orichum provider account --help` |
+| Provider routes | `orichum provider --help` |
+| Custom model stacks | `orichum stack --help` |
+| Project and GitHub | `orichum context update --help` |
+| Jira | `orichum context jira --help` |
 
-Use Advanced for automation, custom account-group placement, direct account
-maintenance, ordered stack candidates, named-account locks, GitHub identity,
-Jira configuration, and other focused project-context operations.
+Use these commands for automation, custom account-group placement, direct
+account maintenance, ordered stack candidates, named-account locks, GitHub
+identity, Jira, and other focused project-context operations.
 
 ## What configuration changes affect
 
@@ -549,9 +492,12 @@ Start a new session to use changed account selection or model assignments. Use
 an explicit fork when moving work to another stack or model family with a
 bounded handoff.
 
-Configuration, accounts, authentication, sessions, and project data are
-machine-local private state. They must not be committed or copied into a
-repository. Inspect their locations with:
+Accounts, authentication, sessions, provider routing, project contexts, and
+other control-plane data are machine-local private state. They must not be
+committed or copied into a repository. The deliberate exception is
+`.orichum/models.json`, which may be committed because it contains only logical
+model assignments and no credentials or account policy. Inspect private
+locations with:
 
 ```bash
 orichum config paths
@@ -583,11 +529,11 @@ orichum configure
 
 Choose:
 
-1. **Accounts and providers**
-2. **Configure a backup account**
+1. **Accounts**
+2. **Add a backup account**
 3. The existing primary account
 4. The recommended automatic-backup policy when an account lock is present
-5. **Review and repair**
+5. **Review and apply changes**
 6. **Apply changes**
 
 Start a new session to receive the new frozen primary and compatible fallback.
@@ -601,11 +547,11 @@ orichum configure
 
 Choose:
 
-1. **Models and agents**
-2. **Choose models by work type** for a compact configuration, or **Customize
-   every role** for full control
+1. **Models**
+2. **Models by work type** for a compact configuration, or **Customize each
+   role** for full control
 3. Models from the numbered live lists
-4. **Review and repair**
+4. **Review and apply changes**
 5. **Apply changes**
 
 The reviewed role table is the exact configuration that new sessions will use.
@@ -656,7 +602,7 @@ reused; cancellation does not silently register an account or apply the draft.
 
 ### Project is configured but not ready
 
-Open **Review and repair** and choose **Reconcile local services**, or run:
+Open **Check configuration** and choose **Repair local services**, or run:
 
 ```bash
 ./install.sh

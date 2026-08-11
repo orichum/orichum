@@ -306,14 +306,14 @@ jobs:
           set timeout 30
           spawn orichum configure --project $env(CONFIGURE_PROJECT)
           expect "Selection: "
-          send -- "6\r"
+          send -- "5\r"
           expect eof
           catch wait result
           exit [lindex $result 3]
           EXPECT
           grep -Fq 'Configuring Orichum' \
             "$RUNNER_TEMP/orichum-configure.log"
-          grep -Fq 'Models and agents' \
+          grep -Fq '1. Models' \
             "$RUNNER_TEMP/orichum-configure.log"
           if grep -Eq 'oc-[acr]-[0-9a-f]{16}|credentialRef|127\.0\.0\.1' \
               "$RUNNER_TEMP/orichum-configure.log"; then

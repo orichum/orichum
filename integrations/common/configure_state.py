@@ -13,6 +13,7 @@ from .account_registry import Account, load_accounts, validate_account_bindings
 from .model_routing import ROLES, RoutingError
 from .orichum_config import ResolvedConfig
 from .project_context import resolve_control_plane_context
+from .project_models import discover_project_models
 from .stack_bindings import StackBindings
 from .stack_catalog import (
     LiveCatalog,
@@ -97,6 +98,10 @@ class ConfigurationSnapshot:
     stacks: NormalizedStacks = field(repr=False)
     bindings: StackBindings = field(repr=False)
     assignments: Mapping[str, ModelSelection]
+    launch_root: Path | None = None
+    project_models_path: Path | None = None
+    project_models_digest: str | None = field(default=None, repr=False)
+    project_models_checked: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -104,6 +109,8 @@ class ConfigurationSnapshot:
             "assignments",
             MappingProxyType(dict(self.assignments)),
         )
+        if self.launch_root is None:
+            object.__setattr__(self, "launch_root", self.target.root)
 
 
 @dataclass(frozen=True)
@@ -116,6 +123,7 @@ class ConfigurationDraft:
     )
     pending_accounts: tuple[PendingAccount, ...] = ()
     binding_removals: tuple[str, ...] = field(default=(), repr=False)
+    profile_switch: str | None = None
     changed: bool = False
 
     def __post_init__(self) -> None:
@@ -159,6 +167,7 @@ class ConfigurationDraft:
             account_plans=self.account_plans,
             pending_accounts=self.pending_accounts,
             binding_removals=self.binding_removals,
+            profile_switch=None,
             changed=True,
         )
 
@@ -172,6 +181,7 @@ class ConfigurationDraft:
             account_plans=self.account_plans,
             pending_accounts=(*self.pending_accounts, pending),
             binding_removals=self.binding_removals,
+            profile_switch=self.profile_switch,
             changed=True,
         )
 
@@ -182,7 +192,28 @@ class ConfigurationDraft:
             account_plans=self.account_plans,
             pending_accounts=self.pending_accounts,
             binding_removals=self.binding_removals,
+            profile_switch=None,
             changed=project != self.project or self.changed,
+        )
+
+    def with_profile(
+        self,
+        project: ProjectTarget,
+        role_models: Mapping[str, ModelSelection],
+    ) -> ConfigurationDraft:
+        profile_changed = project != self.project or dict(role_models) != dict(
+            self.role_models
+        )
+        return ConfigurationDraft(
+            project=project,
+            role_models=role_models,
+            account_plans=self.account_plans,
+            pending_accounts=self.pending_accounts,
+            binding_removals=self.binding_removals,
+            profile_switch=(
+                project.stack_name if profile_changed else self.profile_switch
+            ),
+            changed=profile_changed or self.changed,
         )
 
     def with_binding_removals(
@@ -197,6 +228,7 @@ class ConfigurationDraft:
             binding_removals=tuple(
                 dict.fromkeys((*self.binding_removals, *candidates))
             ),
+            profile_switch=self.profile_switch,
             changed=True,
         )
 
@@ -337,6 +369,31 @@ def _live_assignment(
         account_ids=(),
         account_names=(),
     )
+
+
+def selections_for_stack(
+    snapshot: ConfigurationSnapshot,
+    stack_name: str,
+) -> Mapping[str, ModelSelection]:
+    stack = snapshot.stacks.stacks.get(stack_name)
+    if stack is None:
+        raise RoutingError("model profile is unavailable")
+    selections = {
+        "controller": _live_assignment(
+            stack.controller,
+            snapshot.stacks,
+            snapshot.bindings,
+            snapshot.catalog,
+        )
+    }
+    for role in ROLES:
+        selections[role] = _live_assignment(
+            stack.agents[role],
+            snapshot.stacks,
+            snapshot.bindings,
+            snapshot.catalog,
+        )
+    return MappingProxyType(selections)
 
 
 def selection_for_choice(
@@ -545,6 +602,18 @@ def load_configuration_snapshot(
         _runtime_catalog_port,
     )
 
+    launch_root = Path(str(resolved.get("launchDirReal", project)))
+    project_models = discover_project_models(
+        launch_root,
+        Path(str(route["contextRootReal"])),
+        stack_snapshot.stacks,
+    )
+    effective_stacks = (
+        project_models.stacks if project_models is not None else stack_snapshot.stacks
+    )
+    effective_bindings = (
+        StackBindings({}) if project_models is not None else stack_snapshot.bindings
+    )
     port = _runtime_catalog_port(paths)
     catalog = project_live_catalog(
         fetch_live_catalog(
@@ -552,15 +621,18 @@ def load_configuration_snapshot(
             attest=_runtime_catalog_attester(paths, port),
         ),
         eligible,
-        stack_snapshot.stacks.models,
+        effective_stacks.models,
         provider_document,
     )
-    stack_name = route.get("modelStack")
-    if stack_name is None:
-        stack_name = stack_snapshot.stacks.default_stack
-    elif not isinstance(stack_name, str):
-        raise RoutingError("project model stack is invalid")
-    stack = stack_snapshot.stacks.stacks.get(stack_name)
+    if project_models is not None:
+        stack_name = project_models.stack_name
+    else:
+        stack_name = route.get("modelStack")
+        if stack_name is None:
+            stack_name = effective_stacks.default_stack
+        elif not isinstance(stack_name, str):
+            raise RoutingError("project model stack is invalid")
+    stack = effective_stacks.stacks.get(stack_name)
     if stack is None:
         raise RoutingError("project model stack is unavailable")
 
@@ -568,8 +640,8 @@ def load_configuration_snapshot(
         candidates = stack.controller if role == "controller" else stack.agents[role]
         return _live_assignment(
             candidates,
-            stack_snapshot.stacks,
-            stack_snapshot.bindings,
+            effective_stacks,
+            effective_bindings,
             catalog,
         )
 
@@ -582,7 +654,15 @@ def load_configuration_snapshot(
         ),
         accounts=eligible,
         catalog=catalog,
-        stacks=stack_snapshot.stacks,
-        bindings=stack_snapshot.bindings,
+        stacks=effective_stacks,
+        bindings=effective_bindings,
         assignments=assignments,
+        launch_root=launch_root,
+        project_models_path=(
+            project_models.path if project_models is not None else None
+        ),
+        project_models_digest=(
+            project_models.digest if project_models is not None else None
+        ),
+        project_models_checked=True,
     )

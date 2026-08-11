@@ -20,6 +20,7 @@ from integrations.common.configure_state import (
     load_configuration_snapshot,
     managed_stack_name,
     revalidate_draft,
+    selections_for_stack,
     stack_is_live_compatible,
 )
 from integrations.common.orichum_config import ResolvedConfig
@@ -158,7 +159,81 @@ def _snapshot() -> ConfigurationSnapshot:
     )
 
 
+def _snapshot_with_alternate_profile() -> ConfigurationSnapshot:
+    base = _snapshot()
+    document = serialize_model_stacks(base.stacks)
+    models = document["models"]
+    stacks = document["stacks"]
+    assert isinstance(models, dict)
+    assert isinstance(stacks, dict)
+    models["claude-sonnet-5"] = {
+        "family": "claude",
+        "routes": {"anthropic": "claude-sonnet-5"},
+    }
+    stacks["quality"] = {
+        "controller": [
+            {
+                "id": "oc-c-9999999999999999",
+                "model": "claude-sonnet-5",
+                "providers": ["anthropic"],
+            }
+        ],
+        "agents": {
+            role: [
+                {
+                    "id": f"oc-c-{index:016x}",
+                    "model": "claude-sonnet-5",
+                    "providers": ["anthropic"],
+                }
+            ]
+            for index, role in enumerate(
+                base.stacks.stacks["balanced"].agents,
+                start=100,
+            )
+        },
+    }
+    other = base.accounts[2]
+    return replace(
+        base,
+        stacks=normalize_model_stacks(document),
+        catalog=LiveCatalog(
+            choices=(
+                *base.catalog.choices,
+                LiveModelChoice(
+                    family="claude",
+                    provider="anthropic",
+                    upstream="claude-sonnet-5",
+                    account_ids=(other.id,),
+                    account_names=(other.name,),
+                ),
+            ),
+            unclassified=(),
+        ),
+    )
+
+
 class ConfigureStateTests(unittest.TestCase):
+    def test_profile_switch_tracks_target_until_role_customization(self) -> None:
+        snapshot = _snapshot_with_alternate_profile()
+        selections = selections_for_stack(snapshot, "quality")
+
+        draft = ConfigurationDraft.from_snapshot(snapshot).with_profile(
+            replace(snapshot.target, stack_name="quality"),
+            selections,
+        )
+
+        self.assertTrue(draft.changed)
+        self.assertEqual(draft.profile_switch, "quality")
+        self.assertEqual(
+            {selection.model for selection in draft.role_models.values()},
+            {"claude-sonnet-5"},
+        )
+        customized = draft.with_roles(
+            ("controller",),
+            snapshot.assignments["controller"],
+        )
+        self.assertIsNone(customized.profile_switch)
+
     def test_snapshot_uses_default_stack_when_project_inherits_it(self) -> None:
         existing = _snapshot()
         providers = {
@@ -190,6 +265,10 @@ class ConfigureStateTests(unittest.TestCase):
             mock.patch(
                 "integrations.common.configure_state.resolve_control_plane_context",
                 return_value={"route": route},
+            ),
+            mock.patch(
+                "integrations.common.configure_state.discover_project_models",
+                return_value=None,
             ),
             mock.patch(
                 "integrations.common.stack_wizard._runtime_catalog_port",

@@ -45,7 +45,7 @@ file differed from that commit. Builds without Git metadata add
 | `orichum context validate` | Validate all configured project contexts |
 | `orichum models list` | List declared models |
 | `orichum models stacks` | List configured stacks |
-| `orichum models resolve [STACK]` | Resolve effective stack routes |
+| `orichum models resolve [STACK]` | Resolve the effective project mapping or an explicit machine-local stack |
 | `orichum models validate` | Validate model routing |
 | `orichum stack available` | Show live provider/model choices |
 | `orichum stack configure` | Create or edit a stack interactively |
@@ -79,6 +79,11 @@ file differed from that commit. Builds without Git metadata add
 | `orichum session routes ID` / `orichum sessions routes ID` | Inspect a session's frozen routes |
 | `orichum resume ID` | Resume by Orichum logical ID or Claude session UUID |
 | `orichum fork ID [--stack STACK] [--handoff-file FILE] [--leanctx-profile lean\|full]` | Create a child session; inherit the parent LeanCTX profile unless explicitly overridden |
+
+When `STACK` is omitted, `orichum models resolve` checks the current project for
+`.orichum/models.json` and includes its absolute `source` path when active. An
+explicit `STACK` bypasses the repository mapping and resolves that named
+machine-local stack.
 
 Forward ordinary Claude Code arguments after `--`, for example:
 

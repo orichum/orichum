@@ -68,15 +68,18 @@ at startup. The session MCP file contains only the project root.
 
 ## Launch sequence
 
-1. Resolve the longest matching project context.
-2. Validate configuration and the optional Atlassian/GitHub identities.
-3. Discover live provider/model routes and select eligible accounts.
-4. Freeze the logical session route and integrity digests.
-5. Materialize the controller plugin, strict MCP file, and private LeanCTX
+1. Resolve the configured containing project context.
+2. Discover and strictly validate the nearest optional
+   `.orichum/models.json` within that context.
+3. Validate machine configuration and optional Atlassian/GitHub identities.
+4. Discover live provider/model routes and select eligible accounts.
+5. Build any repository mapping as an in-memory stack and freeze the logical
+   session route and integrity digests.
+6. Materialize the controller plugin, strict MCP file, and private LeanCTX
    contract.
-6. Bind the verified project and optional external-tool identities.
-7. Start and health-check the session's Claudex translator.
-8. Launch Claude Code.
+7. Bind the verified project and optional external-tool identities.
+8. Start and health-check the session's Claudex translator.
+9. Launch Claude Code.
 
 Resume revalidates services and creates a fresh physical package while
 preserving the logical session route. Fork creates a new logical binding and

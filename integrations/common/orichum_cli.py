@@ -100,6 +100,7 @@ from .project_context import (
     control_plane_transaction,
     resolve_control_plane_context,
 )
+from .project_models import ProjectModels, discover_project_models
 from .provider_credentials import (
     CredentialError,
     credential_metadata_transaction,
@@ -688,9 +689,32 @@ def _stack_show(
     )
 
 
-def _resolve_stack(config: ResolvedConfig, requested: str | None) -> dict[str, object]:
+def _resolve_stack(
+    config: ResolvedConfig,
+    requested: str | None,
+    *,
+    launch_dir: Path | None = None,
+) -> dict[str, object]:
     document = normalize_model_stacks(config.documents["model-stacks"])
-    stack_name = requested or document.default_stack
+    project_models = None
+    if requested is None and launch_dir is not None:
+        context = resolve_control_plane_context(
+            config.documents["projects"], launch_dir
+        )
+        route = context.get("route")
+        if isinstance(route, Mapping):
+            project_models = discover_project_models(
+                Path(str(context["launchDirReal"])),
+                Path(str(route["contextRootReal"])),
+                document,
+            )
+            if project_models is not None:
+                document = project_models.stacks
+    stack_name = (
+        project_models.stack_name
+        if project_models is not None
+        else requested or document.default_stack
+    )
     try:
         stack = document.stacks[stack_name]
     except KeyError as error:
@@ -699,7 +723,7 @@ def _resolve_stack(config: ResolvedConfig, requested: str | None) -> dict[str, o
             f"model stack is not configured: {stack_name}; "
             f"available stacks: {available}"
         ) from error
-    return {
+    resolved = {
         "stack": stack_name,
         "controller": stack.controller[0].model,
         "configuredCandidates": {
@@ -710,6 +734,9 @@ def _resolve_stack(config: ResolvedConfig, requested: str | None) -> dict[str, o
             role: stack.agents[role][0].model for role in ROLES
         },
     }
+    if project_models is not None:
+        resolved["source"] = str(project_models.path)
+    return resolved
 
 
 def _provider_list(config: ResolvedConfig) -> str:
@@ -1259,6 +1286,37 @@ def _validate_live_models(
         )
 
 
+
+def _session_model_inputs(
+    paths: Mapping[str, Path],
+    config: ResolvedConfig,
+    context: Mapping[str, object],
+) -> tuple[Mapping[str, object], str | None, StackBindings, ProjectModels | None]:
+    route = context.get("route")
+    if not isinstance(route, Mapping):
+        raise CliError("launch directory is not mapped to an Orichum project")
+    base = normalize_model_stacks(config.documents["model-stacks"])
+    project_models = discover_project_models(
+        Path(str(context["launchDirReal"])),
+        Path(str(route["contextRootReal"])),
+        base,
+    )
+    if project_models is None:
+        return (
+            config.documents,
+            route.get("modelStack"),
+            load_stack_bindings(paths["config"] / "stack-bindings.json"),
+            None,
+        )
+    documents = dict(config.documents)
+    documents["model-stacks"] = project_models.stacks
+    return (
+        documents,
+        project_models.stack_name,
+        StackBindings({}),
+        project_models,
+    )
+
 def _prepare_new_session(
     paths: Mapping[str, Path],
     config: ResolvedConfig,
@@ -1273,20 +1331,21 @@ def _prepare_new_session(
     route = context.get("route")
     if not isinstance(route, dict):
         raise CliError("launch directory is not mapped to an Orichum project")
+    session_config, requested_stack, bindings, _project_models = (
+        _session_model_inputs(paths, config, context)
+    )
     accounts = load_accounts(paths["config"] / "accounts.json")
     validate_account_bindings(accounts, config.documents["providers"])
     available = _live_models(paths)
     ordinal = int.from_bytes(os.urandom(8), "big")
     plan = resolve_session_plan(
-        config.documents,
+        session_config,
         accounts,
         pools=tuple(route["accountPools"]),
-        requested_stack=route["modelStack"],
+        requested_stack=requested_stack,
         health={},
         selection_ordinal=ordinal,
-        bindings=load_stack_bindings(
-            paths["config"] / "stack-bindings.json"
-        ),
+        bindings=bindings,
         available_models=available,
     )
     _validate_plan_routes(
@@ -1800,6 +1859,45 @@ def _mutate_account(
             )
 
 
+def _configuration_model_changes(
+    config: ResolvedConfig,
+    snapshot: ConfigurationSnapshot,
+    draft: ConfigurationDraft,
+) -> tuple[bool, bool]:
+    model_changed = draft.profile_switch is None and any(
+        draft.role_models.get(role) != snapshot.assignments.get(role)
+        for role in draft.role_models
+    )
+    stack_changed = draft.project.stack_name != snapshot.target.stack_name
+    if not snapshot.project_models_checked:
+        return model_changed, stack_changed
+    base_stacks = normalize_model_stacks(config.documents["model-stacks"])
+    project_models = discover_project_models(
+        snapshot.launch_root or snapshot.target.root,
+        snapshot.target.root,
+        base_stacks,
+    )
+    expected_source = (
+        snapshot.project_models_path,
+        snapshot.project_models_digest,
+    )
+    current_source = (
+        project_models.path if project_models is not None else None,
+        project_models.digest if project_models is not None else None,
+    )
+    if current_source != expected_source:
+        raise CliError(
+            "project model mapping changed while configuration was open; "
+            "restart orichum configure"
+        )
+    if project_models is not None and (model_changed or stack_changed):
+        raise CliError(
+            "project models are controlled by "
+            f"{project_models.path}; edit that JSON file directly"
+        )
+    return model_changed, stack_changed
+
+
 def _apply_configuration_draft(
     paths: Mapping[str, Path],
     config: ResolvedConfig,
@@ -1807,6 +1905,11 @@ def _apply_configuration_draft(
     draft: ConfigurationDraft,
 ) -> None:
     """Apply a confirmed guided draft and compensate new accounts on failure."""
+    model_changed, stack_changed = _configuration_model_changes(
+        config,
+        snapshot,
+        draft,
+    )
     registry = Path(paths["config"]) / "accounts.json"
     created: list[Account] = []
     try:
@@ -1847,7 +1950,7 @@ def _apply_configuration_draft(
             refreshed = load_configuration_snapshot(
                 paths,
                 config,
-                snapshot.target.root,
+                snapshot.launch_root or snapshot.target.root,
             )
             created_by_credential = {
                 account.credential_ref: account for account in created
@@ -1869,13 +1972,6 @@ def _apply_configuration_draft(
                         "backup account does not advertise a compatible route"
                     )
 
-        model_changed = any(
-            draft.role_models.get(role) != snapshot.assignments.get(role)
-            for role in draft.role_models
-        )
-        stack_changed = (
-            draft.project.stack_name != snapshot.target.stack_name
-        )
         bindings_changed = bool(draft.binding_removals)
         if not model_changed and not stack_changed and not bindings_changed:
             return
@@ -1909,7 +2005,7 @@ def _apply_configuration_draft(
             availability = refreshed if backup_drafts else load_configuration_snapshot(
                 paths,
                 config,
-                snapshot.target.root,
+                snapshot.launch_root or snapshot.target.root,
             )
             compatibility_snapshot = replace(
                 current_snapshot,
@@ -2355,19 +2451,20 @@ def _setup_project_ready(
         route = context.get("route")
         if not isinstance(route, dict):
             return False
+        session_config, requested_stack, bindings, _project_models = (
+            _session_model_inputs(paths, config, context)
+        )
         accounts = load_accounts(paths["config"] / "accounts.json")
         validate_account_bindings(accounts, config.documents["providers"])
         available = _live_models(paths)
         plan = resolve_session_plan(
-            config.documents,
+            session_config,
             accounts,
             pools=tuple(route["accountPools"]),
-            requested_stack=route["modelStack"],
+            requested_stack=requested_stack,
             health={},
             selection_ordinal=0,
-            bindings=load_stack_bindings(
-                paths["config"] / "stack-bindings.json"
-            ),
+            bindings=bindings,
             available_models=available,
         )
         _validate_plan_routes(
@@ -2386,6 +2483,7 @@ def _setup_project_ready(
         CredentialError,
         LogicalSessionError,
         RouteError,
+        RoutingError,
         StackBindingError,
     ):
         return False
@@ -3334,10 +3432,10 @@ def build_parser() -> argparse.ArgumentParser:
     configure = command(
         commands,
         "configure",
-        "Guide ongoing project configuration.",
+        "Review and tune one project.",
         description=(
-            "Configure accounts, models, project settings, and repair for "
-            "one Orichum project through guided live choices."
+            "Review models, accounts, health, and advanced settings for one "
+            "Orichum project from a compact guided dashboard."
         ),
     )
     set_completion(
@@ -4287,7 +4385,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             elif parsed.models_command == "resolve":
                 print(
                     json.dumps(
-                        _resolve_stack(config, parsed.stack),
+                        _resolve_stack(
+                            config,
+                            parsed.stack,
+                            launch_dir=Path.cwd(),
+                        ),
                         indent=2,
                         sort_keys=True,
                     )

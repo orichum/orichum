@@ -22,7 +22,7 @@ cd ~/projects/my-app
 orichum configure
 ```
 
-Choose **Accounts and providers**, then **Configure a backup account**. Select
+Choose **Accounts**, then **Add a backup account**. Select
 the existing primary account; Orichum fixes the provider, authenticates or
 reuses another compatible credential, asks for its friendly name, derives a
 lower preference, and previews the new-session fallback. The flow works for
@@ -56,7 +56,7 @@ another account.
 orichum configure
 ```
 
-Choose **Models and agents**. The wizard lists models currently advertised by
+Choose **Models**. The wizard lists models currently advertised by
 the owned local gateway and offers:
 
 - Orichum's recommendation;

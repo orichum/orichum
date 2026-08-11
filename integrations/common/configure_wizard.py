@@ -19,6 +19,7 @@ from .configure_state import (
     revalidate_draft,
     review_draft,
     selection_for_choice,
+    selections_for_stack,
     stack_is_live_compatible,
 )
 from .model_routing import RoutingError
@@ -116,14 +117,42 @@ def _show_review(
     io.show(review.session_notice)
 
 
+def _configuration_rows(
+    snapshot: ConfigurationSnapshot,
+    draft: ConfigurationDraft,
+) -> tuple[tuple[str, str], ...]:
+    account_names = {
+        name
+        for selection in draft.role_models.values()
+        for name in selection.account_names
+    }
+    accounts = f"{len(account_names)} available"
+    if draft.pending_accounts:
+        accounts += f", {len(draft.pending_accounts)} pending"
+    if snapshot.project_models_path is not None:
+        profile = "Project file"
+    else:
+        profile = draft.project.stack_name
+        if profile != snapshot.target.stack_name:
+            profile += " (pending)"
+    return (
+        ("Project", str(snapshot.launch_root or draft.project.root)),
+        ("Profile", profile),
+        ("Controller", draft.role_models["controller"].model),
+        ("Accounts", accounts),
+        ("Changes", "Ready to review" if draft.changed else "None"),
+    )
+
+
 def _show_advanced(io: WizardIO) -> None:
     io.section(
         "Advanced commands",
         (
-            ("Accounts", "orichum provider account --help"),
-            ("Providers", "orichum provider --help"),
-            ("Models", "orichum stack --help"),
-            ("Projects", "orichum context --help"),
+            ("Manage accounts", "orichum provider account --help"),
+            ("Provider routes", "orichum provider --help"),
+            ("Custom model stacks", "orichum stack --help"),
+            ("Project and GitHub", "orichum context update --help"),
+            ("Jira", "orichum context jira --help"),
         ),
     )
 
@@ -173,23 +202,50 @@ def _models_menu(
     snapshot: ConfigurationSnapshot,
     draft: ConfigurationDraft,
 ) -> ConfigurationDraft:
+    if snapshot.project_models_path is not None:
+        io.section(
+            "Project model file",
+            (
+                ("File", str(snapshot.project_models_path)),
+                ("Effect", "Authoritative for new sessions"),
+                ("Edit", "Open this JSON file in your editor"),
+            ),
+        )
+        return draft
     selected = io.choose(
-        "Models and agents",
+        "Models",
         (
-            Choice("Use Orichum's recommendation"),
-            Choice("Use one model for everything"),
-            Choice("Choose models by work type"),
-            Choice("Customize every role"),
+            Choice(
+                "Recommended setup",
+                detail="Orichum chooses compatible models",
+            ),
+            Choice(
+                "One model everywhere",
+                detail="the simplest custom setup",
+            ),
+            Choice(
+                "Models by work type",
+                detail="separate research, review, and implementation",
+            ),
+            Choice(
+                "Customize each role",
+                detail="full control over every specialist",
+            ),
+            Choice(
+                "Switch profile",
+                detail="use another saved model stack",
+            ),
             Choice("Back"),
         ),
     )
-    if selected in {BACK, 4}:
+    if selected in {BACK, 5}:
         return draft
     if selected == 0:
         recommended = recommended_selections(snapshot)
         updated = draft
         for role in ROLE_ORDER:
             updated = updated.with_roles((role,), recommended[role])
+        io.show("Recommended models are ready to review.")
         return updated
     if selected == 1:
         selection = _pick_model(
@@ -213,11 +269,13 @@ def _models_menu(
             updated = updated.with_roles(roles, selection)
             io.show(f"{label}: {selection.model}")
         return updated
+    if selected == 4:
+        return _switch_profile(io, snapshot, draft)
 
     updated = draft
     while True:
         role_index = io.choose(
-            "Customize every role",
+            "Customize each role",
             tuple(
                 Choice(
                     ROLE_LABELS[role],
@@ -247,19 +305,30 @@ def _accounts_menu(
     services: ConfigureServices,
 ) -> ConfigurationDraft:
     selected = io.choose(
-        "Accounts and providers",
+        "Accounts",
         (
-            Choice("Add an account"),
-            Choice("Configure a backup account"),
-            Choice("Change account preference"),
-            Choice("Enable, disable, or remove an account"),
+            Choice(
+                "Add an account",
+                detail="connect another provider or credential",
+            ),
+            Choice(
+                "Add a backup account",
+                detail="automatic fallback for a current account",
+            ),
+            Choice(
+                "Manage existing accounts",
+                detail="rename, priority, enable, disable, or remove",
+            ),
             Choice("Back"),
         ),
     )
-    if selected in {BACK, 4}:
+    if selected in {BACK, 3}:
         return draft
-    if selected in {2, 3}:
-        io.show("Use Advanced for low-level account maintenance in this release.")
+    if selected == 2:
+        io.section(
+            "Manage existing accounts",
+            (("Command", "orichum provider account --help"),),
+        )
         return draft
     primary = None
     if selected == 1:
@@ -327,6 +396,8 @@ def _accounts_menu(
                     Choice("Keep the account lock; do not enable automatic backup"),
                 ),
             )
+            if policy == BACK:
+                return draft
             if policy == 0:
                 updated = updated.with_binding_removals(locked)
         return updated
@@ -338,6 +409,8 @@ def _accounts_menu(
             Choice("Advanced placement"),
         ),
     )
+    if availability == BACK:
+        return draft
     if availability == 2:
         io.show("Use Advanced to place an account in a custom group.")
         return draft
@@ -350,6 +423,8 @@ def _accounts_menu(
             Choice("Backup"),
         ),
     )
+    if intent_index == BACK:
+        return draft
     intent = ("preferred", "additional", "backup")[intent_index]
     provider_accounts = tuple(
         account
@@ -388,15 +463,14 @@ def _review_and_apply(
     services: ConfigureServices,
     verbose: bool,
 ) -> tuple[bool, ConfigurationDraft]:
-    _show_review(io, snapshot, draft)
     if not draft.changed:
         try:
-            services.verify_project(snapshot.target.root)
+            services.verify_project(snapshot.launch_root or snapshot.target.root)
         except RoutingError:
             action = io.choose(
-                "This project needs local runtime repair.",
+                "Configuration needs repair",
                 (
-                    Choice("Reconcile local services"),
+                    Choice("Repair local services"),
                     Choice("Back"),
                 ),
             )
@@ -404,24 +478,30 @@ def _review_and_apply(
                 return False, draft
             if services.reconcile(verbose) != 0:
                 raise RoutingError("runtime reconciliation failed")
-            services.verify_project(snapshot.target.root)
-            io.show("Orichum configuration is ready for new sessions.")
+            services.verify_project(snapshot.launch_root or snapshot.target.root)
+            io.show("Configuration repaired. Orichum is ready.")
             return True, draft
-        io.show("No changes are pending. This project is ready.")
+        io.show("Configuration is healthy. No changes are needed.")
         return False, draft
+
+    _show_review(io, snapshot, draft)
     action = io.choose(
         "Review changes",
         (
             Choice("Apply changes"),
-            Choice("Go back"),
-            Choice("Cancel"),
+            Choice("Keep editing"),
+            Choice("Discard and exit"),
         ),
     )
     if action == 2:
         return True, draft
     if action in {BACK, 1}:
         return False, draft
-    refreshed = services.refresh_snapshot(paths, config, snapshot.target.root)
+    refreshed = services.refresh_snapshot(
+        paths,
+        config,
+        snapshot.launch_root or snapshot.target.root,
+    )
     drift = revalidate_draft(snapshot, draft, refreshed.catalog)
     if drift.invalid_roles:
         labels = ", ".join(ROLE_LABELS[role] for role in drift.invalid_roles)
@@ -440,35 +520,16 @@ def _review_and_apply(
     services.apply_draft(snapshot, draft)
     if services.reconcile(verbose) != 0:
         raise RoutingError("runtime reconciliation failed")
-    services.verify_project(snapshot.target.root)
-    io.show("Orichum configuration is ready for new sessions.")
+    services.verify_project(snapshot.launch_root or snapshot.target.root)
+    io.show("Changes applied. New sessions will use this configuration.")
     return True, draft
 
 
-def _project_settings_menu(
+def _switch_profile(
     io: WizardIO,
     snapshot: ConfigurationSnapshot,
     draft: ConfigurationDraft,
 ) -> ConfigurationDraft:
-    selected = io.choose(
-        "Project settings",
-        (
-            Choice("Model profile or stack"),
-            Choice("Account availability"),
-            Choice("GitHub identity"),
-            Choice("Jira configuration"),
-            Choice("Another configured project"),
-            Choice("Back"),
-        ),
-    )
-    if selected in {BACK, 5}:
-        return draft
-    if selected != 0:
-        io.show(
-            "Use Advanced for this project setting while guided support "
-            "is being completed."
-        )
-        return draft
     names = tuple(
         name
         for name in sorted(snapshot.stacks.stacks)
@@ -476,11 +537,11 @@ def _project_settings_menu(
     )
     if draft.project.stack_name not in names:
         io.show(
-            f"Current stack {draft.project.stack_name} is not available "
+            f"Current profile {draft.project.stack_name} is not available "
             "with this project's live accounts."
         )
     if not names:
-        io.show("No usable model profile or stack is available.")
+        io.show("No usable model profile is available.")
         return draft
     current = (
         names.index(draft.project.stack_name)
@@ -488,7 +549,7 @@ def _project_settings_menu(
         else 0
     )
     stack_index = io.choose(
-        "Choose a model profile or stack",
+        "Switch profile",
         tuple(
             Choice(
                 name,
@@ -501,7 +562,11 @@ def _project_settings_menu(
     )
     if stack_index == BACK:
         return draft
-    return draft.with_project(replace(draft.project, stack_name=names[stack_index]))
+    selected_name = names[stack_index]
+    return draft.with_profile(
+        replace(draft.project, stack_name=selected_name),
+        selections_for_stack(snapshot, selected_name),
+    )
 
 
 def run_configure(
@@ -517,30 +582,55 @@ def run_configure(
     operations = _default_services(paths, config, ui) if services is None else services
     snapshot = operations.load_snapshot(paths, config, Path(project))
     draft = ConfigurationDraft.from_snapshot(snapshot)
-    ui.section(
-        "Configuring Orichum",
-        (("Project", str(snapshot.target.root)),),
-    )
-    top_level = (
-        Choice("Accounts and providers"),
-        Choice("Models and agents"),
-        Choice("Project settings"),
-        Choice("Review and repair"),
-        Choice("Advanced"),
-        Choice("Back"),
-    )
     while True:
-        selected = ui.choose(
-            "What would you like to configure?",
-            top_level,
+        rows = _configuration_rows(snapshot, draft)
+        summary = dict(rows)
+        ui.section("Orichum configuration", rows)
+        review_label = (
+            "Review and apply changes" if draft.changed else "Check configuration"
         )
-        if selected in {BACK, 5}:
-            return 0
+        top_level = (
+            Choice(
+                "Models",
+                detail=f"{summary['Profile']} · {summary['Controller']}",
+            ),
+            Choice("Accounts", detail=summary["Accounts"]),
+            Choice(
+                review_label,
+                detail=(
+                    "review before anything is saved"
+                    if draft.changed
+                    else "verify routes and repair services"
+                ),
+            ),
+            Choice(
+                "Advanced settings",
+                detail="GitHub, Jira, account maintenance, custom stacks",
+            ),
+            Choice("Exit"),
+        )
+        selected = ui.choose("What do you want to change?", top_level)
+        if selected in {BACK, 4}:
+            if not draft.changed:
+                return 0
+            exit_action = ui.choose(
+                "You have unapplied changes",
+                (
+                    Choice("Review and apply changes"),
+                    Choice("Discard and exit"),
+                    Choice("Keep editing"),
+                ),
+            )
+            if exit_action == 1:
+                return 0
+            if exit_action in {BACK, 2}:
+                continue
+            selected = 2
         if selected == 0:
-            draft = _accounts_menu(ui, snapshot, draft, config, operations)
-        elif selected == 1:
             draft = _models_menu(ui, snapshot, draft)
-        elif selected == 3:
+        elif selected == 1:
+            draft = _accounts_menu(ui, snapshot, draft, config, operations)
+        elif selected == 2:
             completed, draft = _review_and_apply(
                 ui,
                 paths,
@@ -552,7 +642,5 @@ def run_configure(
             )
             if completed:
                 return 0
-        elif selected == 2:
-            draft = _project_settings_menu(ui, snapshot, draft)
-        elif selected == 4:
+        elif selected == 3:
             _show_advanced(ui)

@@ -14,7 +14,7 @@ from integrations.common.model_routing import RoutingError
 from integrations.common.stack_bindings import StackBindings
 from integrations.common.stack_catalog import LiveCatalog, LiveModelChoice
 from integrations.common.terminal_ui import BACK, Choice
-from tests.test_configure_state import _snapshot
+from tests.test_configure_state import _snapshot, _snapshot_with_alternate_profile
 
 
 class ScriptedUI:
@@ -26,7 +26,9 @@ class ScriptedUI:
     ) -> None:
         self.choices = list(choices)
         self.text_values = list(text_values)
+        self.choice_titles: list[str] = []
         self.choice_labels: list[tuple[str, ...]] = []
+        self.choice_details: list[tuple[str, ...]] = []
         self.text_prompts: list[str] = []
         self.sections: list[tuple[str, tuple[tuple[str, str], ...]]] = []
         self.shown: list[str] = []
@@ -38,9 +40,11 @@ class ScriptedUI:
         selected: int = 0,
         searchable: bool = False,
     ) -> int:
-        del title, searchable
+        del searchable
         labels = tuple(option.label for option in options)
+        self.choice_titles.append(title)
         self.choice_labels.append(labels)
+        self.choice_details.append(tuple(option.detail for option in options))
         if self.choices:
             wanted = self.choices.pop(0)
             if wanted == "Back" and wanted not in labels:
@@ -81,8 +85,8 @@ class ConfigureWizardTests(unittest.TestCase):
             verify_project=lambda project: None,
         )
 
-    def test_top_level_menu_uses_the_five_approved_areas(self) -> None:
-        io = ScriptedUI(["Back"])
+    def test_top_level_menu_shows_four_clear_tasks_and_exit(self) -> None:
+        io = ScriptedUI(["Exit"])
 
         status = run_configure(
             {},
@@ -93,20 +97,75 @@ class ConfigureWizardTests(unittest.TestCase):
         )
 
         self.assertEqual(status, 0)
+        self.assertEqual(io.choice_titles[0], "What do you want to change?")
         self.assertEqual(
             io.choice_labels[0],
             (
-                "Accounts and providers",
-                "Models and agents",
-                "Project settings",
-                "Review and repair",
-                "Advanced",
-                "Back",
+                "Models",
+                "Accounts",
+                "Check configuration",
+                "Advanced settings",
+                "Exit",
             ),
+        )
+        dashboard = next(
+            rows for title, rows in io.sections if title == "Orichum configuration"
+        )
+        self.assertEqual(
+            tuple(label for label, _value in dashboard),
+            ("Project", "Profile", "Controller", "Accounts", "Changes"),
+        )
+        self.assertEqual(dict(dashboard)["Changes"], "None")
+        self.assertIn("verify routes", io.choice_details[0][2])
+
+    def test_project_model_file_is_shown_as_authoritative_and_read_only(
+        self,
+    ) -> None:
+        source = Path("/work/acme/.orichum/models.json")
+        snapshot = replace(
+            _snapshot(),
+            project_models_path=source,
+            project_models_digest="a" * 64,
+            project_models_checked=True,
+        )
+        services = replace(
+            self.services(),
+            load_snapshot=lambda paths, config, project: snapshot,
+            refresh_snapshot=lambda paths, config, project: snapshot,
+        )
+        io = ScriptedUI(["Models", "Exit"])
+
+        status = run_configure(
+            {},
+            object(),
+            Path("/work/acme"),
+            io=io,
+            services=services,
+        )
+
+        self.assertEqual(status, 0)
+        dashboard = next(
+            rows for title, rows in io.sections if title == "Orichum configuration"
+        )
+        self.assertEqual(dict(dashboard)["Profile"], "Project file")
+        project_file = next(
+            rows for title, rows in io.sections if title == "Project model file"
+        )
+        self.assertEqual(dict(project_file)["File"], str(source))
+        self.assertFalse(
+            any("Recommended setup" in labels for labels in io.choice_labels)
         )
 
     def test_review_lists_every_concrete_role_and_session_effect(self) -> None:
-        io = ScriptedUI(["Review and repair", "Back"])
+        io = ScriptedUI(
+            [
+                "Models",
+                "One model everywhere",
+                "gpt-5.6-sol",
+                "Review and apply changes",
+                "Discard and exit",
+            ]
+        )
 
         run_configure(
             {},
@@ -123,7 +182,7 @@ class ConfigureWizardTests(unittest.TestCase):
             io.shown,
         )
 
-    def test_review_can_reconcile_an_unready_project_once(self) -> None:
+    def test_check_can_repair_an_unready_project_once(self) -> None:
         verified: list[Path] = []
         reconciled: list[bool] = []
 
@@ -137,7 +196,7 @@ class ConfigureWizardTests(unittest.TestCase):
             reconcile=lambda verbose: reconciled.append(verbose) or 0,
             verify_project=verify,
         )
-        io = ScriptedUI(["Review and repair", "Reconcile local services"])
+        io = ScriptedUI(["Check configuration", "Repair local services"])
 
         status = run_configure(
             {},
@@ -150,7 +209,7 @@ class ConfigureWizardTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(reconciled, [False])
         self.assertEqual(verified, [Path("/work/acme"), Path("/work/acme")])
-        self.assertIn("Orichum configuration is ready for new sessions.", io.shown)
+        self.assertIn("Configuration repaired. Orichum is ready.", io.shown)
 
     def test_leaving_without_changes_does_not_apply_or_reconcile(self) -> None:
         applied: list[ConfigurationDraft] = []
@@ -169,13 +228,49 @@ class ConfigureWizardTests(unittest.TestCase):
             {},
             object(),
             Path("/work/acme"),
-            io=ScriptedUI(["Back"]),
+            io=ScriptedUI(["Exit"]),
             services=services,
         )
 
         self.assertEqual(status, 0)
         self.assertEqual(applied, [])
         self.assertEqual(reconciled, [])
+
+    def test_exit_with_pending_changes_requires_an_explicit_choice(self) -> None:
+        applied: list[ConfigurationDraft] = []
+        services = replace(
+            self.services(),
+            apply_draft=lambda snapshot, draft: applied.append(draft),
+        )
+        io = ScriptedUI(
+            [
+                "Models",
+                "Recommended setup",
+                "Exit",
+                "Keep editing",
+                "Review and apply changes",
+                "Discard and exit",
+            ]
+        )
+
+        status = run_configure(
+            {},
+            object(),
+            Path("/work/acme"),
+            io=io,
+            services=services,
+        )
+
+        self.assertEqual(status, 0)
+        self.assertEqual(applied, [])
+        self.assertIn(
+            (
+                "Review and apply changes",
+                "Discard and exit",
+                "Keep editing",
+            ),
+            io.choice_labels,
+        )
 
     def test_one_model_for_everything_uses_one_live_numbered_choice(self) -> None:
         applied: list[ConfigurationDraft] = []
@@ -190,10 +285,10 @@ class ConfigureWizardTests(unittest.TestCase):
         )
         io = ScriptedUI(
             [
-                "Models and agents",
-                "Use one model for everything",
+                "Models",
+                "One model everywhere",
                 "gpt-5.6-sol",
-                "Review and repair",
+                "Review and apply changes",
                 "Apply changes",
             ]
         )
@@ -237,10 +332,10 @@ class ConfigureWizardTests(unittest.TestCase):
         )
         io = ScriptedUI(
             [
-                "Accounts and providers",
-                "Configure a backup account",
+                "Accounts",
+                "Add a backup account",
                 "OpenAI primary",
-                "Review and repair",
+                "Review and apply changes",
                 "Apply changes",
             ],
             text_values=["OpenAI new backup"],
@@ -269,13 +364,87 @@ class ConfigureWizardTests(unittest.TestCase):
             io.shown,
         )
 
-    def test_project_settings_discovers_stack_names_without_text_input(self) -> None:
+    def test_accounts_menu_only_shows_guided_actions_and_clear_handoff(self) -> None:
+        io = ScriptedUI(["Accounts", "Manage existing accounts", "Exit"])
+
+        run_configure(
+            {},
+            object(),
+            Path("/work/acme"),
+            io=io,
+            services=self.services(),
+        )
+
+        self.assertEqual(
+            io.choice_labels[1],
+            (
+                "Add an account",
+                "Add a backup account",
+                "Manage existing accounts",
+                "Back",
+            ),
+        )
+        command = next(
+            rows for title, rows in io.sections if title == "Manage existing accounts"
+        )
+        self.assertEqual(command, (("Command", "orichum provider account --help"),))
+
+    def test_back_during_account_placement_or_intent_keeps_draft_clean(self) -> None:
+        config = SimpleNamespace(documents={"providers": {"providers": {"openai": {}}}})
+        services = replace(
+            self.services(),
+            prepare_account=lambda provider: SimpleNamespace(
+                credential_ref="new-openai.json",
+                suggested_name="OpenAI new",
+            ),
+        )
+        for choices in (
+            ["Accounts", "Add an account", "Openai", "Back", "Exit"],
+            [
+                "Accounts",
+                "Add an account",
+                "Openai",
+                "Current project",
+                "Back",
+                "Exit",
+            ],
+        ):
+            with self.subTest(choices=choices):
+                io = ScriptedUI(choices)
+
+                status = run_configure(
+                    {},
+                    config,
+                    Path("/work/acme"),
+                    io=io,
+                    services=services,
+                )
+
+                self.assertEqual(status, 0)
+                dashboards = [
+                    dict(rows)
+                    for title, rows in io.sections
+                    if title == "Orichum configuration"
+                ]
+                self.assertGreaterEqual(len(dashboards), 2)
+                self.assertEqual(dashboards[-1]["Changes"], "None")
+
+    def test_switch_profile_reviews_and_applies_target_models(self) -> None:
+        snapshot = _snapshot_with_alternate_profile()
+        applied: list[ConfigurationDraft] = []
+        services = replace(
+            self.services(),
+            load_snapshot=lambda paths, config, project: snapshot,
+            refresh_snapshot=lambda paths, config, project: snapshot,
+            apply_draft=lambda current, draft: applied.append(draft),
+        )
         io = ScriptedUI(
             [
-                "Project settings",
-                "Model profile or stack",
-                "balanced",
-                "Back",
+                "Models",
+                "Switch profile",
+                "quality",
+                "Review and apply changes",
+                "Apply changes",
             ]
         )
 
@@ -284,17 +453,28 @@ class ConfigureWizardTests(unittest.TestCase):
             object(),
             Path("/work/acme"),
             io=io,
-            services=self.services(),
+            services=services,
         )
 
         self.assertEqual(status, 0)
-        self.assertIn("balanced", io.choice_labels[2])
+        self.assertIn("quality", io.choice_labels[2])
         self.assertEqual(io.text_prompts, [])
+        self.assertEqual(applied[0].profile_switch, "quality")
+        self.assertEqual(applied[0].project.stack_name, "quality")
+        self.assertEqual(
+            {selection.model for selection in applied[0].role_models.values()},
+            {"claude-sonnet-5"},
+        )
+        reviewed = next(
+            rows for title, rows in io.sections if title == "Models" and len(rows) == 6
+        )
+        self.assertEqual({model for _role, model in reviewed}, {"claude-sonnet-5"})
 
-    def test_project_settings_hides_stacks_without_live_routes(self) -> None:
-        base = _snapshot()
+    def test_switch_profile_recovers_from_an_unavailable_current_profile(self) -> None:
+        base = _snapshot_with_alternate_profile()
         snapshot = replace(
             base,
+            target=replace(base.target, stack_name="offline"),
             stacks=replace(
                 base.stacks,
                 stacks=MappingProxyType(
@@ -305,16 +485,20 @@ class ConfigureWizardTests(unittest.TestCase):
                 ),
             ),
         )
+        applied: list[ConfigurationDraft] = []
         services = replace(
             self.services(),
             load_snapshot=lambda paths, config, project: snapshot,
+            refresh_snapshot=lambda paths, config, project: snapshot,
+            apply_draft=lambda current, draft: applied.append(draft),
         )
         io = ScriptedUI(
             [
-                "Project settings",
-                "Model profile or stack",
-                "balanced",
-                "Back",
+                "Models",
+                "Switch profile",
+                "quality",
+                "Review and apply changes",
+                "Apply changes",
             ]
         )
 
@@ -330,7 +514,12 @@ class ConfigureWizardTests(unittest.TestCase):
                 services=services,
             )
 
-        self.assertEqual(io.choice_labels[2], ("balanced",))
+        self.assertEqual(io.choice_labels[2], ("balanced", "quality"))
+        self.assertEqual(applied[0].profile_switch, "quality")
+        self.assertEqual(
+            {selection.model for selection in applied[0].role_models.values()},
+            {"claude-sonnet-5"},
+        )
 
     def test_backup_flow_can_remove_project_account_lock(self) -> None:
         base = _snapshot()
@@ -354,11 +543,11 @@ class ConfigureWizardTests(unittest.TestCase):
         )
         io = ScriptedUI(
             [
-                "Accounts and providers",
-                "Configure a backup account",
+                "Accounts",
+                "Add a backup account",
                 "OpenAI primary",
                 "Allow OpenAI primary with OpenAI new backup [recommended]",
-                "Review and repair",
+                "Review and apply changes",
                 "Apply changes",
             ],
             text_values=["OpenAI new backup"],
@@ -373,6 +562,52 @@ class ConfigureWizardTests(unittest.TestCase):
         )
 
         self.assertEqual(applied[0].binding_removals, (candidate.id,))
+
+    def test_back_from_backup_lock_policy_does_not_stage_the_account(self) -> None:
+        base = _snapshot()
+        candidate = base.stacks.stacks[base.target.stack_name].controller[0]
+        snapshot = replace(
+            base,
+            bindings=StackBindings({candidate.id: base.accounts[0].id}),
+        )
+        applied: list[ConfigurationDraft] = []
+        services = ConfigureServices(
+            load_snapshot=lambda paths, config, project: snapshot,
+            refresh_snapshot=lambda paths, config, project: snapshot,
+            prepare_account=lambda provider: SimpleNamespace(
+                credential_ref="new-backup.json",
+                suggested_name="Openai account",
+            ),
+            apply_draft=lambda current, draft: applied.append(draft),
+            reconcile=lambda verbose: 0,
+            verify_project=lambda project: None,
+        )
+        io = ScriptedUI(
+            [
+                "Accounts",
+                "Add a backup account",
+                "OpenAI primary",
+                "Back",
+                "Exit",
+            ],
+            text_values=["OpenAI new backup"],
+        )
+
+        run_configure(
+            {},
+            object(),
+            Path("/work/acme"),
+            io=io,
+            services=services,
+        )
+
+        self.assertEqual(applied, [])
+        dashboards = [
+            dict(rows)
+            for title, rows in io.sections
+            if title == "Orichum configuration"
+        ]
+        self.assertEqual(dashboards[-1]["Changes"], "None")
 
     def test_customize_role_can_mix_live_provider_models(self) -> None:
         base = _snapshot()
@@ -401,12 +636,12 @@ class ConfigureWizardTests(unittest.TestCase):
         )
         io = ScriptedUI(
             [
-                "Models and agents",
-                "Customize every role",
+                "Models",
+                "Customize each role",
                 "Correctness critic",
                 "claude-sonnet-5",
                 "Back",
-                "Review and repair",
+                "Review and apply changes",
                 "Apply changes",
             ]
         )
@@ -452,13 +687,13 @@ class ConfigureWizardTests(unittest.TestCase):
         )
         io = ScriptedUI(
             [
-                "Models and agents",
-                "Use one model for everything",
+                "Models",
+                "One model everywhere",
                 "gpt-5.6-sol",
-                "Review and repair",
+                "Review and apply changes",
                 "Apply changes",
                 *("claude-sonnet-5" for _ in range(6)),
-                "Review and repair",
+                "Review and apply changes",
                 "Apply changes",
             ]
         )

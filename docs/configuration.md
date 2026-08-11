@@ -23,6 +23,18 @@ orichum config paths
 | `accounts.json` | Private named-account registry managed by provider commands |
 | `stack-bindings.json` | Private machine-local named-account locks |
 
+A project may also commit `.orichum/models.json`. This deliberately narrow file
+contains only the controller logical model and the five specialist logical
+models. It cannot contain providers, accounts, credentials, pools, fallbacks,
+commands, or tools. The referenced logical models must already exist in the
+machine-local `model-stacks.json`.
+
+The nearest valid project file between the launch directory and matched context
+root overrides only model assignment for fresh sessions. Machine-local account
+availability, provider routes, and credentials still control how those models
+are reached. Because repository write access grants model-selection authority,
+review changes to this file like other executable-development configuration.
+
 Jira is the deliberate local exception to credential references:
 `orichum context jira ROOT` stores its URL, username, and token together on
 that project entry in private `projects.json`. The installed file is mode
@@ -33,6 +45,8 @@ independent without another account registry.
 
 `projects.json`, `accounts.json`, `stack-bindings.json`, authentication data,
 and session state are private machine-local files and must not be committed.
+The project-local `.orichum/models.json` is the only repository configuration
+exception and contains no secrets.
 
 The installer preserves user-managed JSON configuration. Reconciliation
 normalizes `projects.json` to the current schema while preserving active
@@ -60,8 +74,9 @@ state.
 
 Prefer `orichum stack configure`, `orichum provider account`,
 `orichum context`, `orichum context jira`, and `orichum plugin`
-commands over direct JSON editing. They validate and save changes
-transactionally.
+commands over direct machine-local JSON editing. Edit repository
+`.orichum/models.json` directly when a project intentionally owns its simple
+role-to-model mapping.
 
 Orichum's private LeanCTX MCP uses blocklist-only shell execution so arbitrary
 finite CLIs work without changing `~/.config/lean-ctx/config.toml`. Project

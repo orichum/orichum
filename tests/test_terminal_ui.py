@@ -66,6 +66,49 @@ class TerminalUiTests(unittest.TestCase):
         self.assertEqual(selected, 1)
         self.assertIn("1. gpt-5.6-terra", output.getvalue())
 
+    def test_search_default_is_always_a_visible_choice(self) -> None:
+        options = (
+            Choice("gpt-5.6-sol"),
+            Choice("gpt-5.6-terra"),
+            Choice("gpt-5.6-terra-mini"),
+        )
+        for selected, expected in ((0, 1), (2, 2)):
+            with self.subTest(selected=selected):
+                ui = TerminalUI(
+                    stdin=io.StringIO("/terra\n\n"),
+                    stdout=io.StringIO(),
+                    environment={"NO_COLOR": "1"},
+                    width=80,
+                )
+
+                result = ui.choose(
+                    "Choose a model",
+                    options,
+                    selected=selected,
+                    searchable=True,
+                )
+
+                self.assertEqual(result, expected)
+
+    def test_only_explicit_markers_are_rendered_as_current(self) -> None:
+        output = io.StringIO()
+        ui = TerminalUI(
+            stdin=io.StringIO("\n"),
+            stdout=output,
+            environment={"NO_COLOR": "1"},
+            width=80,
+        )
+
+        selected = ui.choose(
+            "Choose an action",
+            (Choice("Models"), Choice("Accounts", marker="current")),
+        )
+
+        self.assertEqual(selected, 0)
+        self.assertIn("1. Models\n", output.getvalue())
+        self.assertNotIn("1. Models [current]", output.getvalue())
+        self.assertIn("2. Accounts [current]", output.getvalue())
+
     def test_no_color_suppresses_ansi(self) -> None:
         output = io.StringIO()
         ui = TerminalUI(

@@ -54,6 +54,23 @@ journalctl --user -u orichum-leanctx-proxy.service
 journalctl --user -u orichum-route-proxy.service
 ```
 
+## API error while the gateway reports HTTP 200
+
+An HTTP 200 records that the gateway accepted the response headers; it does not
+prove that the complete streaming response reached Claude Code. Inspect the
+route-proxy log for `route-retry`, `route-complete`, and `route-failed` events:
+
+```bash
+journalctl --user -u orichum-route-proxy.service
+```
+
+Correlate components with the opaque `requestId` field or the
+`X-Orichum-Request-ID` response header. A failure with stage `before-output`
+may use the session's frozen fallback. A failure with stage `after-output` is
+reported without replay because output or a tool request may already have
+reached the client. The events contain route identifiers and byte counts but no
+request body, prompt, credential, or provider token.
+
 ## Wrong GitHub identity
 
 Confirm the context and authenticated accounts:

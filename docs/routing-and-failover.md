@@ -26,6 +26,17 @@ flowchart TD
     P -->|"output or tools may have started"| E["Surface the failure"]
 ```
 
+Before committing a successful response to the client, the route proxy buffers
+one bounded prelude. For SSE responses it waits for the first complete `data:`
+event; for bounded non-streaming responses it validates the advertised body.
+A transport failure during that prelude can use the frozen fallback because no
+model output or tool request has reached the client. Once any response event is
+forwarded, Orichum never replays the request.
+
+Every proxied request receives an opaque `X-Orichum-Request-ID`. The same ID is
+sent upstream, returned to the client, included in private route telemetry, and
+written with redacted lifecycle events to the route-proxy service log.
+
 ## Recovery limits
 
 - Recovery never selects an account that was not frozen into the session.

@@ -32,23 +32,33 @@ class RouteStatusTests(unittest.TestCase):
 
         store.select(
             "oc-s-0000000000000001",
+            "oc-rq-0000000000000001",
             route,
             route_state="fallback",
             reason="retry",
         )
-        store.complete("oc-s-0000000000000001", 200)
+        store.complete(
+            "oc-s-0000000000000001",
+            "oc-rq-0000000000000001",
+            200,
+            512,
+        )
 
         self.assertEqual(
             store.get("oc-s-0000000000000001").as_public_json(),
             {
                 "sessionId": "oc-s-0000000000000001",
+                "requestId": "oc-rq-0000000000000001",
                 "accountId": route.account_id,
                 "provider": route.provider,
                 "family": route.family,
                 "logicalModel": route.logical_model,
                 "routeState": "fallback",
                 "reason": "retry",
+                "responseState": "complete",
                 "lastHttpStatus": 200,
+                "bytesForwarded": 512,
+                "failureKind": None,
                 "updatedAt": "2026-07-27T00:00:00+00:00",
             },
         )

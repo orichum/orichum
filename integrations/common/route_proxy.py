@@ -8,8 +8,10 @@ import http.client
 import json
 import os
 import re
+import secrets
 import socket
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable, Collection
@@ -33,6 +35,8 @@ MAX_REQUEST_BYTES = 32 * 1024 * 1024
 MAX_CONCURRENT_REQUESTS = 32
 CLIENT_READ_TIMEOUT_SECONDS = 30
 ATTESTATION_TTL_SECONDS = 30
+MAX_RESPONSE_PRELUDE_BYTES = 1024 * 1024
+RESPONSE_READ_BYTES = 64 * 1024
 _HOP_HEADERS = frozenset(
     {
         "connection",
@@ -56,6 +60,28 @@ class RequestTooLarge(RouteProxyError):
     """An inbound request exceeds the local proxy safety bound."""
 
 
+class UpstreamStreamError(RouteProxyError):
+    """An upstream response failed before or during delivery."""
+
+    def __init__(
+        self,
+        http_status: int | None,
+        bytes_forwarded: int,
+    ):
+        super().__init__("upstream response stream failed")
+        self.http_status = http_status
+        self.bytes_forwarded = bytes_forwarded
+
+
+class ClientStreamError(RouteProxyError):
+    """The downstream client disconnected during response delivery."""
+
+    def __init__(self, http_status: int, bytes_forwarded: int):
+        super().__init__("client response stream failed")
+        self.http_status = http_status
+        self.bytes_forwarded = bytes_forwarded
+
+
 @dataclass(frozen=True)
 class ProxyConfig:
     upstream_port: int
@@ -68,6 +94,105 @@ class ProxyConfig:
         if catalog and self.catalog_port is not None:
             return self.catalog_port
         return self.upstream_port
+
+
+@dataclass
+class PreparedResponse:
+    connection: http.client.HTTPConnection
+    response: http.client.HTTPResponse
+    prelude: bytes
+
+
+@dataclass
+class RouteRequestTrace:
+    request_id: str
+    session_id: str | None
+    status_store: RouteStatusStore
+    event_logger: Callable[[dict[str, object]], None]
+    started: float
+    selected_route: Route | None = None
+    route_state: str | None = None
+    route_reason: str | None = None
+
+    def select(self, route: Route, state: str, reason: str) -> None:
+        self.selected_route = route
+        self.route_state = state
+        self.route_reason = reason
+        if self.session_id is not None:
+            self.status_store.select(
+                self.session_id,
+                self.request_id,
+                route,
+                route_state=state,
+                reason=reason,
+            )
+
+    def emit(self, event: str, **fields: object) -> None:
+        document: dict[str, object] = {
+            "event": event,
+            "requestId": self.request_id,
+            "durationMs": round((time.monotonic() - self.started) * 1000),
+            **fields,
+        }
+        if self.session_id is not None:
+            document["sessionId"] = self.session_id
+        if self.selected_route is not None:
+            document.update(
+                {
+                    "accountId": self.selected_route.account_id,
+                    "provider": self.selected_route.provider,
+                    "logicalModel": self.selected_route.logical_model,
+                    "routeState": self.route_state,
+                    "reason": self.route_reason,
+                }
+            )
+        self.event_logger(document)
+
+    def streaming(self, http_status: int) -> None:
+        if self.session_id is not None and self.selected_route is not None:
+            self.status_store.streaming(
+                self.session_id,
+                self.request_id,
+                http_status,
+            )
+        self.emit("route-streaming", httpStatus=http_status)
+
+    def complete(self, http_status: int, bytes_forwarded: int) -> None:
+        if self.session_id is not None and self.selected_route is not None:
+            self.status_store.complete(
+                self.session_id,
+                self.request_id,
+                http_status,
+                bytes_forwarded,
+            )
+        self.emit(
+            "route-complete",
+            httpStatus=http_status,
+            bytesForwarded=bytes_forwarded,
+        )
+
+    def fail(
+        self,
+        failure_kind: str,
+        http_status: int | None,
+        bytes_forwarded: int,
+        stage: str,
+    ) -> None:
+        if self.session_id is not None and self.selected_route is not None:
+            self.status_store.fail(
+                self.session_id,
+                self.request_id,
+                http_status,
+                bytes_forwarded,
+                failure_kind,
+            )
+        self.emit(
+            "route-failed",
+            httpStatus=http_status,
+            bytesForwarded=bytes_forwarded,
+            failureKind=failure_kind,
+            stage=stage,
+        )
 
 
 class RouteIndex:
@@ -292,6 +417,25 @@ def _read_request_body(handler: BaseHTTPRequestHandler) -> bytes:
     return body
 
 
+def _has_sse_data_event(payload: bytes) -> bool:
+    normalized = payload.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    for event in normalized.split(b"\n\n")[:-1]:
+        if any(
+            line == b"data" or line.startswith(b"data:")
+            for line in event.split(b"\n")
+        ):
+            return True
+    return False
+
+
+def _write_route_event(document: dict[str, object]) -> None:
+    print(
+        json.dumps(document, sort_keys=True, separators=(",", ":")),
+        file=sys.stderr,
+        flush=True,
+    )
+
+
 class RouteProxyHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "OrichumRouteProxy/1"
@@ -299,6 +443,14 @@ class RouteProxyHandler(BaseHTTPRequestHandler):
 
     def log_message(self, _format: str, *_arguments: object) -> None:
         return
+
+    def send_response(
+        self, code: int, message: str | None = None
+    ) -> None:
+        super().send_response(code, message)
+        request_id = getattr(self, "_request_id", None)
+        if request_id is not None:
+            self.send_header("X-Orichum-Request-ID", request_id)
 
     def _upstream(
         self,
@@ -315,11 +467,16 @@ class RouteProxyHandler(BaseHTTPRequestHandler):
             key: value
             for key, value in self.headers.items()
             if key.lower() not in _HOP_HEADERS
-            and key.lower() not in {"host", "content-length"}
-            and key.lower() != "x-orichum-session-id"
+            and key.lower() not in {
+                "host",
+                "content-length",
+                "x-orichum-request-id",
+                "x-orichum-session-id",
+            }
         }
         headers["Content-Length"] = str(len(body))
         headers["Connection"] = "close"
+        headers["X-Orichum-Request-ID"] = self._request_id
         connected = None
         try:
             connected = self._open_upstream_socket(catalog=catalog)
@@ -439,29 +596,119 @@ class RouteProxyHandler(BaseHTTPRequestHandler):
             connected.close()
             raise
 
-    def _send_response(
+    def _prepare_response(
         self,
         connection: http.client.HTTPConnection,
         response: http.client.HTTPResponse,
-    ) -> None:
+    ) -> PreparedResponse:
         try:
-            self._response_started = True
-            self.send_response_only(response.status, response.reason)
-            for key, value in response.getheaders():
+            content_type = response.getheader("Content-Type", "")
+            media_type = content_type.partition(";")[0].strip().lower()
+            if media_type == "text/event-stream":
+                buffered = bytearray()
+                while len(buffered) < MAX_RESPONSE_PRELUDE_BYTES:
+                    block = response.read1(
+                        min(
+                            RESPONSE_READ_BYTES,
+                            MAX_RESPONSE_PRELUDE_BYTES - len(buffered),
+                        )
+                    )
+                    if not block:
+                        raise UpstreamStreamError(response.status, 0)
+                    buffered.extend(block)
+                    if _has_sse_data_event(buffered):
+                        return PreparedResponse(
+                            connection,
+                            response,
+                            bytes(buffered),
+                        )
+                raise UpstreamStreamError(response.status, 0)
+
+            raw_length = response.getheader("Content-Length")
+            content_length = None
+            if raw_length is not None:
+                try:
+                    content_length = int(raw_length, 10)
+                except ValueError:
+                    content_length = None
+            if (
+                content_length is not None
+                and 0 <= content_length <= MAX_RESPONSE_PRELUDE_BYTES
+            ):
+                prelude = response.read(content_length)
+                if len(prelude) != content_length:
+                    raise UpstreamStreamError(response.status, 0)
+            else:
+                prelude = response.read1(RESPONSE_READ_BYTES)
                 if (
-                    key.lower() not in _HOP_HEADERS
-                    and key.lower() not in {"content-length"}
+                    not prelude
+                    and isinstance(content_length, int)
+                    and content_length > 0
                 ):
-                    self.send_header(key, value)
-            self.send_header("Connection", "close")
-            self.end_headers()
-            self.close_connection = True
+                    raise UpstreamStreamError(response.status, 0)
+            return PreparedResponse(connection, response, prelude)
+        except UpstreamStreamError:
+            connection.close()
+            raise
+        except (http.client.HTTPException, TimeoutError, OSError) as failure:
+            connection.close()
+            raise UpstreamStreamError(response.status, 0) from failure
+
+    def _send_response(self, prepared: PreparedResponse) -> int:
+        connection = prepared.connection
+        response = prepared.response
+        bytes_forwarded = 0
+        try:
+            try:
+                self._response_started = True
+                self.send_response_only(response.status, response.reason)
+                for key, value in response.getheaders():
+                    if (
+                        key.lower() not in _HOP_HEADERS
+                        and key.lower()
+                        not in {"content-length", "x-orichum-request-id"}
+                    ):
+                        self.send_header(key, value)
+                self.send_header("X-Orichum-Request-ID", self._request_id)
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.close_connection = True
+                if prepared.prelude:
+                    self.wfile.write(prepared.prelude)
+                    self.wfile.flush()
+                    bytes_forwarded += len(prepared.prelude)
+            except OSError as failure:
+                raise ClientStreamError(
+                    response.status, bytes_forwarded
+                ) from failure
+
             while True:
-                block = response.read(65536)
+                try:
+                    block = response.read1(RESPONSE_READ_BYTES)
+                except (
+                    http.client.HTTPException,
+                    TimeoutError,
+                    OSError,
+                ) as failure:
+                    raise UpstreamStreamError(
+                        response.status, bytes_forwarded
+                    ) from failure
                 if not block:
+                    remaining = response.length
+                    if isinstance(remaining, int) and remaining > 0:
+                        raise UpstreamStreamError(
+                            response.status, bytes_forwarded
+                        )
                     break
-                self.wfile.write(block)
-                self.wfile.flush()
+                try:
+                    self.wfile.write(block)
+                    self.wfile.flush()
+                    bytes_forwarded += len(block)
+                except OSError as failure:
+                    raise ClientStreamError(
+                        response.status, bytes_forwarded
+                    ) from failure
+            return bytes_forwarded
         finally:
             connection.close()
 
@@ -534,9 +781,110 @@ class RouteProxyHandler(BaseHTTPRequestHandler):
             return
         self._status_json(200, status.as_public_json())
 
+    def _fallback_upstream(
+        self,
+        body: bytes,
+        primary: str,
+        fallback_route: Route,
+        resident_names: Collection[str],
+        trace: RouteRequestTrace,
+        *,
+        cause: str,
+        http_status: int | None,
+    ) -> tuple[http.client.HTTPConnection, http.client.HTTPResponse]:
+        previous_account = (
+            None
+            if trace.selected_route is None
+            else trace.selected_route.account_id
+        )
+        trace.select(fallback_route, "fallback", "retry")
+        trace.emit(
+            "route-retry",
+            cause=cause,
+            fromAccountId=previous_account,
+            httpStatus=http_status,
+        )
+        fallback_body = _replace_model(
+            body, primary, fallback_route.upstream_model
+        )
+        return self._candidate_upstream(fallback_body, resident_names)
+
+    def _prepare_with_fallback(
+        self,
+        connection: http.client.HTTPConnection,
+        response: http.client.HTTPResponse,
+        body: bytes,
+        primary: str | None,
+        fallback_route: Route | None,
+        resident_names: Collection[str],
+        trace: RouteRequestTrace,
+        used_primary: bool,
+    ) -> tuple[PreparedResponse, http.client.HTTPResponse, bool]:
+        try:
+            return self._prepare_response(connection, response), response, used_primary
+        except UpstreamStreamError as failure:
+            if not used_primary or primary is None or fallback_route is None:
+                raise
+            self.server.cooldowns.trip(primary)
+            connection, response = self._fallback_upstream(
+                body,
+                primary,
+                fallback_route,
+                resident_names,
+                trace,
+                cause="pre-output-stream",
+                http_status=failure.http_status,
+            )
+            return self._prepare_response(connection, response), response, False
+
+    def _deliver_response(
+        self,
+        prepared: PreparedResponse,
+        response: http.client.HTTPResponse,
+        trace: RouteRequestTrace,
+        *,
+        used_primary: bool,
+        primary: str | None,
+        has_fallback: bool,
+    ) -> None:
+        trace.streaming(response.status)
+        try:
+            bytes_forwarded = self._send_response(prepared)
+        except UpstreamStreamError as failure:
+            if used_primary and primary is not None and has_fallback:
+                self.server.cooldowns.trip(primary)
+            trace.fail(
+                "upstream",
+                failure.http_status,
+                failure.bytes_forwarded,
+                "after-output",
+            )
+            return
+        except ClientStreamError as failure:
+            trace.fail(
+                "client",
+                failure.http_status,
+                failure.bytes_forwarded,
+                "after-output",
+            )
+            return
+
+        if used_primary and primary is not None and response.status < 400:
+            self.server.cooldowns.clear(primary)
+        trace.complete(response.status, bytes_forwarded)
+
     def _handle(self) -> None:
         self._response_started = False
+        self._request_id = f"oc-rq-{secrets.token_hex(8)}"
         self.connection.settimeout(CLIENT_READ_TIMEOUT_SECONDS)
+        trace = RouteRequestTrace(
+            self._request_id,
+            None,
+            self.server.route_status_store,
+            self.server.event_logger,
+            time.monotonic(),
+        )
+
         try:
             body = _read_request_body(self)
             if (
@@ -544,96 +892,105 @@ class RouteProxyHandler(BaseHTTPRequestHandler):
                 and urlsplit(_upstream_path(self.path)).path == "/v1/models"
             ):
                 connection, response = self._upstream(body, catalog=True)
-                self._send_response(connection, response)
+                prepared = self._prepare_response(connection, response)
+                self._send_response(prepared)
                 return
+
             primary = _request_model(body)
             supplied_session_id = self.headers.get("X-Orichum-Session-ID")
-            session_id = (
+            trace.session_id = (
                 supplied_session_id
                 if supplied_session_id is not None
                 and _LOGICAL_SESSION_ID.fullmatch(supplied_session_id)
                 else None
             )
-            index: RouteIndex = self.server.route_index
-            cooldowns: Cooldowns = self.server.cooldowns
-            status_store: RouteStatusStore = self.server.route_status_store
             routes, leanctx_profile = (
-                index.request_policy_for(session_id, primary)
+                self.server.route_index.request_policy_for(
+                    trace.session_id, primary
+                )
                 if primary is not None
                 else (None, LEANCTX_PROFILE_FULL)
             )
-            leanctx_resident_names = resident_tool_names(leanctx_profile)
+            resident_names = resident_tool_names(leanctx_profile)
             primary_route = None if routes is None else routes[0]
             fallback_route = None if routes is None else routes[1]
-            fallback = (
-                None
-                if fallback_route is None
-                else fallback_route.upstream_model
-            )
-            if (
+            used_primary = not (
                 primary is not None
-                and fallback is not None
-                and cooldowns.active(primary)
-            ):
-                status_store.select(
-                    session_id,
-                    fallback_route,
-                    route_state="fallback",
-                    reason="cooldown",
+                and fallback_route is not None
+                and self.server.cooldowns.active(primary)
+            )
+            if used_primary:
+                request_body = body
+                if primary_route is not None:
+                    trace.select(primary_route, "primary", "primary")
+            else:
+                trace.select(fallback_route, "fallback", "cooldown")
+                request_body = _replace_model(
+                    body, primary, fallback_route.upstream_model
                 )
-                fallback_body = _replace_model(body, primary, fallback)
-                connection, response = self._candidate_upstream(
-                    fallback_body,
-                    leanctx_resident_names,
-                )
-                status_store.complete(session_id, response.status)
-                self._send_response(connection, response)
-                return
 
-            if session_id is not None and primary_route is not None:
-                status_store.select(
-                    session_id,
-                    primary_route,
-                    route_state="primary",
-                    reason="primary",
-                )
             connection, response = self._candidate_upstream(
-                body,
-                leanctx_resident_names,
+                request_body,
+                resident_names,
             )
             if (
-                primary is not None
-                and fallback is not None
+                used_primary
+                and primary is not None
+                and fallback_route is not None
                 and response.status in RETRYABLE_STATUSES
             ):
                 connection.close()
-                cooldowns.trip(primary)
-                status_store.select(
-                    session_id,
+                self.server.cooldowns.trip(primary)
+                connection, response = self._fallback_upstream(
+                    body,
+                    primary,
                     fallback_route,
-                    route_state="fallback",
-                    reason="retry",
+                    resident_names,
+                    trace,
+                    cause="http-status",
+                    http_status=response.status,
                 )
-                fallback_body = _replace_model(body, primary, fallback)
-                connection, response = self._candidate_upstream(
-                    fallback_body,
-                    leanctx_resident_names,
-                )
-            elif primary is not None and response.status < 400:
-                cooldowns.clear(primary)
-            if session_id is not None and primary_route is not None:
-                status_store.complete(session_id, response.status)
-            self._send_response(connection, response)
+                used_primary = False
+
+            prepared, response, used_primary = self._prepare_with_fallback(
+                connection,
+                response,
+                body,
+                primary,
+                fallback_route,
+                resident_names,
+                trace,
+                used_primary,
+            )
+            self._deliver_response(
+                prepared,
+                response,
+                trace,
+                used_primary=used_primary,
+                primary=primary,
+                has_fallback=fallback_route is not None,
+            )
         except RequestTooLarge:
             self._safe_error(413, "Orichum request body is too large")
+        except UpstreamStreamError as failure:
+            trace.fail(
+                "upstream",
+                failure.http_status,
+                failure.bytes_forwarded,
+                "before-output",
+            )
+            self._safe_error(502, "Orichum upstream response failed")
         except RouteProxyError as failure:
+            trace.fail("upstream", None, 0, "request")
             self._safe_error(
                 502,
                 f"Orichum route state is unavailable: {failure}",
             )
         except LogicalSessionError:
+            trace.fail("upstream", None, 0, "request")
             self._safe_error(502, "Orichum route state is unavailable")
         except (http.client.HTTPException, TimeoutError, OSError):
+            trace.fail("upstream", None, 0, "request")
             self._safe_error(502, "Orichum upstream connection failed")
 
     do_DELETE = _handle
@@ -662,6 +1019,7 @@ class RouteProxyServer(ThreadingHTTPServer):
         route_index: RouteIndex | None = None,
         cooldowns: Cooldowns | None = None,
         route_status_store: RouteStatusStore | None = None,
+        event_logger: Callable[[dict[str, object]], None] | None = None,
     ):
         if address[0] != "127.0.0.1":
             raise RouteProxyError("route proxy must bind to 127.0.0.1")
@@ -669,6 +1027,7 @@ class RouteProxyServer(ThreadingHTTPServer):
         self.route_index = route_index or RouteIndex(config.state_home)
         self.cooldowns = cooldowns or Cooldowns(config.cooldown_seconds)
         self.route_status_store = route_status_store or RouteStatusStore()
+        self.event_logger = event_logger or (lambda _document: None)
         self.attestation_gate = AttestationGate(
             ATTESTATION_TTL_SECONDS
         )
@@ -731,6 +1090,7 @@ def main() -> int:
             arguments.data_home,
             catalog_port=arguments.catalog_port,
         ),
+        event_logger=_write_route_event,
     )
     try:
         server.serve_forever()

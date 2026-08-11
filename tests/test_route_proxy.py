@@ -20,6 +20,7 @@ from integrations.common.model_routing import ROLES
 from integrations.common.orichum_sessions import RouteBinding
 from integrations.common.route_proxy import (
     MAX_REQUEST_BYTES,
+    MAX_RESPONSE_PRELUDE_BYTES,
     AttestationGate,
     Cooldowns,
     ProxyConfig,
@@ -27,9 +28,11 @@ from integrations.common.route_proxy import (
     RouteIndex,
     RouteProxyError,
     RouteProxyServer,
+    _has_sse_data_event,
     _read_request_body,
 )
 from integrations.common.route_selection import Route
+from integrations.common.route_status import RouteStatusStore
 
 
 def client_tool(name: str) -> dict:
@@ -89,6 +92,7 @@ class RecordingUpstream:
         self.models: list[str | None] = []
         self.paths: list[str] = []
         self.session_headers: list[str | None] = []
+        self.request_ids: list[str | None] = []
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -106,6 +110,9 @@ class RecordingUpstream:
                 owner.session_headers.append(
                     self.headers.get("X-Orichum-Session-ID")
                 )
+                owner.request_ids.append(
+                    self.headers.get("X-Orichum-Request-ID")
+                )
                 status, body = owner.responses.pop(0)
                 self.send_response(status)
                 self.send_header("Content-Length", str(len(body)))
@@ -116,6 +123,9 @@ class RecordingUpstream:
                 owner.paths.append(self.path)
                 owner.session_headers.append(
                     self.headers.get("X-Orichum-Session-ID")
+                )
+                owner.request_ids.append(
+                    self.headers.get("X-Orichum-Request-ID")
                 )
                 status, body = owner.responses.pop(0)
                 self.send_response(status)
@@ -143,7 +153,21 @@ class RecordingUpstream:
 
 
 class TruncatedUpstream:
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        fallback_body: bytes | None = None,
+        event_before_truncation: bool = False,
+        event_separator: bytes = b"\n",
+        empty_large_response: bool = False,
+    ):
+        self.fallback_body = fallback_body
+        self.event_before_truncation = event_before_truncation
+        self.event_separator = event_separator
+        self.empty_large_response = empty_large_response
+        self.models: list[str | None] = []
+        owner = self
+
         class Handler(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
 
@@ -152,11 +176,40 @@ class TruncatedUpstream:
 
             def do_POST(self) -> None:
                 length = int(self.headers["Content-Length"])
-                self.rfile.read(length)
+                document = json.loads(self.rfile.read(length))
+                owner.models.append(document.get("model"))
+                if len(owner.models) > 1:
+                    if owner.fallback_body is None:
+                        raise AssertionError("unexpected fallback request")
+                    self.send_response(200)
+                    self.send_header(
+                        "Content-Length", str(len(owner.fallback_body))
+                    )
+                    self.end_headers()
+                    self.wfile.write(owner.fallback_body)
+                    return
+
+                if owner.empty_large_response:
+                    partial = b""
+                elif owner.event_before_truncation:
+                    partial = (
+                        b'data: {"type":"content_block_delta"}'
+                        + owner.event_separator
+                        + owner.event_separator
+                    )
+                else:
+                    partial = b'data: {"type":"content_block_delta"'
                 self.send_response(200)
-                self.send_header("Content-Length", "100")
+                if not owner.empty_large_response:
+                    self.send_header("Content-Type", "text/event-stream")
+                announced_length = (
+                    MAX_RESPONSE_PRELUDE_BYTES + 1
+                    if owner.empty_large_response
+                    else len(partial) + 100
+                )
+                self.send_header("Content-Length", str(announced_length))
                 self.end_headers()
-                self.wfile.write(b"partial")
+                self.wfile.write(partial)
                 self.wfile.flush()
                 self.connection.shutdown(socket.SHUT_RDWR)
                 self.connection.close()
@@ -191,6 +244,8 @@ class ProxyHarness:
         catalog_port: int | None = None,
         leanctx_profile: str = "full",
     ):
+        self.events: list[dict[str, object]] = []
+        self.last_response_headers: dict[str, str] = {}
         config_arguments: dict[str, object] = {}
         if catalog_port is not None:
             config_arguments["catalog_port"] = catalog_port
@@ -204,6 +259,7 @@ class ProxyHarness:
             ),
             route_index=StaticRouteIndex(routes, leanctx_profile),
             cooldowns=cooldowns,
+            event_logger=self.events.append,
         )
         self.thread = threading.Thread(
             target=self.server.serve_forever, daemon=True
@@ -249,6 +305,7 @@ class ProxyHarness:
             },
         )
         response = connection.getresponse()
+        self.last_response_headers = dict(response.getheaders())
         payload = response.read()
         connection.close()
         return response.status, payload
@@ -668,6 +725,18 @@ class RouteProxyTests(unittest.TestCase):
 
         self.assertEqual((status, body), (200, b"primary"))
         self.assertEqual(upstream.models, [self.primary])
+        self.assertRegex(
+            upstream.request_ids[0] or "",
+            r"^oc-rq-[a-f0-9]{16}$",
+        )
+        self.assertEqual(
+            proxy.last_response_headers["X-Orichum-Request-ID"],
+            upstream.request_ids[0],
+        )
+        self.assertEqual(
+            [event["event"] for event in proxy.events],
+            ["route-streaming", "route-complete"],
+        )
         self.assertEqual(upstream.session_headers, [None])
 
     def test_verified_request_defers_tools_before_forwarding(self) -> None:
@@ -928,6 +997,39 @@ class RouteProxyTests(unittest.TestCase):
         self.assertEqual(document["routeState"], "fallback")
         self.assertEqual(document["reason"], "retry")
         self.assertEqual(document["lastHttpStatus"], 200)
+        self.assertRegex(document["requestId"], r"^oc-rq-[a-f0-9]{16}$")
+        self.assertEqual(document["responseState"], "complete")
+        self.assertEqual(document["bytesForwarded"], len(b"fallback"))
+        self.assertIsNone(document["failureKind"])
+
+    def test_stale_completion_does_not_overwrite_newer_request(self) -> None:
+        store = RouteStatusStore()
+        session_id = "oc-s-0000000000000001"
+        first_request = "oc-rq-0000000000000001"
+        second_request = "oc-rq-0000000000000002"
+        route = StaticRouteIndex._route(
+            self.primary, "0000000000000001"
+        )
+        store.select(
+            session_id,
+            first_request,
+            route,
+            route_state="primary",
+            reason="primary",
+        )
+        store.select(
+            session_id,
+            second_request,
+            route,
+            route_state="primary",
+            reason="primary",
+        )
+        store.complete(session_id, first_request, 200, 10)
+
+        status = store.get(session_id)
+        self.assertIsNotNone(status)
+        self.assertEqual(status.request_id, second_request)
+        self.assertEqual(status.response_state, "pending")
 
     def test_cooldown_skips_known_exhausted_primary(self) -> None:
         clock = [100.0]
@@ -968,16 +1070,95 @@ class RouteProxyTests(unittest.TestCase):
 
         self.assertEqual(status, 502)
 
-    def test_truncated_response_closes_without_writing_a_second_response(self) -> None:
-        with TruncatedUpstream() as upstream:
+    def test_sse_data_event_accepts_all_legal_line_endings(self) -> None:
+        for separator in (b"\n", b"\r\n", b"\r"):
+            for field in (b"data: value", b"data"):
+                with self.subTest(separator=separator, field=field):
+                    self.assertTrue(
+                        _has_sse_data_event(
+                            field + separator + separator
+                        )
+                    )
+
+    def test_pre_output_truncated_stream_retries_fallback(self) -> None:
+        fallback_body = b'fallback complete'
+        with TruncatedUpstream(fallback_body=fallback_body) as upstream:
+            with ProxyHarness(
+                upstream.port, {self.primary: self.fallback}
+            ) as proxy:
+                status, body = proxy.post(self.primary)
+                telemetry_status, telemetry_body = proxy.get(
+                    "/status?session_id=oc-s-0000000000000001"
+                )
+
+        self.assertEqual((status, body), (200, fallback_body))
+        self.assertEqual(upstream.models, [self.primary, self.fallback])
+        self.assertEqual(telemetry_status, 200)
+        telemetry = json.loads(telemetry_body)
+        self.assertEqual(telemetry["routeState"], "fallback")
+        self.assertEqual(telemetry["reason"], "retry")
+        self.assertEqual(telemetry["responseState"], "complete")
+        retry = next(
+            event for event in proxy.events if event["event"] == "route-retry"
+        )
+        self.assertEqual(retry["cause"], "pre-output-stream")
+
+    def test_empty_large_response_retries_before_output(self) -> None:
+        fallback_body = b"fallback complete"
+        with TruncatedUpstream(
+            fallback_body=fallback_body,
+            empty_large_response=True,
+        ) as upstream:
             with ProxyHarness(
                 upstream.port, {self.primary: self.fallback}
             ) as proxy:
                 status, body = proxy.post(self.primary)
 
-        self.assertEqual(status, 200)
-        self.assertNotIn(b"HTTP/1.1 502", body)
-        self.assertNotIn(b"Orichum upstream connection failed", body)
+        self.assertEqual((status, body), (200, fallback_body))
+        self.assertEqual(upstream.models, [self.primary, self.fallback])
+
+    def test_pre_output_truncated_stream_without_fallback_returns_502(
+        self,
+    ) -> None:
+        with TruncatedUpstream() as upstream:
+            with ProxyHarness(upstream.port, {}) as proxy:
+                status, body = proxy.post(self.primary)
+
+        self.assertEqual(status, 502)
+        self.assertIn(b"Orichum upstream response failed", body)
+        self.assertRegex(
+            proxy.last_response_headers["X-Orichum-Request-ID"],
+            r"^oc-rq-[a-f0-9]{16}$",
+        )
+        self.assertEqual(upstream.models, [self.primary])
+
+    def test_truncated_stream_after_first_event_is_not_replayed(self) -> None:
+        event = b'data: {"type":"content_block_delta"}\r\r'
+        with TruncatedUpstream(
+            fallback_body=b"must not be used",
+            event_before_truncation=True,
+            event_separator=b"\r",
+        ) as upstream:
+            with ProxyHarness(
+                upstream.port, {self.primary: self.fallback}
+            ) as proxy:
+                status, body = proxy.post(self.primary)
+                telemetry_status, telemetry_body = proxy.get(
+                    "/status?session_id=oc-s-0000000000000001"
+                )
+
+        self.assertEqual((status, body), (200, event))
+        self.assertEqual(upstream.models, [self.primary])
+        self.assertEqual(telemetry_status, 200)
+        telemetry = json.loads(telemetry_body)
+        self.assertEqual(telemetry["routeState"], "primary")
+        self.assertEqual(telemetry["responseState"], "failed")
+        self.assertEqual(telemetry["failureKind"], "upstream")
+        self.assertEqual(telemetry["bytesForwarded"], len(event))
+        failure = next(
+            event for event in proxy.events if event["event"] == "route-failed"
+        )
+        self.assertEqual(failure["stage"], "after-output")
 
     def test_non_loopback_listener_is_rejected(self) -> None:
         with self.assertRaisesRegex(RouteProxyError, "127.0.0.1"):

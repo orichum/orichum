@@ -311,7 +311,7 @@ jobs:
           catch wait result
           exit [lindex $result 3]
           EXPECT
-          grep -Fq 'Configuring Orichum' \
+          grep -Fq 'Orichum configuration' \
             "$RUNNER_TEMP/orichum-configure.log"
           grep -Fq '1. Models' \
             "$RUNNER_TEMP/orichum-configure.log"

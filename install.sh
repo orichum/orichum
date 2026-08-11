@@ -828,6 +828,7 @@ attempt_verified_fast_install() (
       "$cliproxy_artifact" "$claudex_artifact" "$route_runtime" \
       "$cliproxy_port" "$claudex_port" "$route_port" "$leanctx_port" \
       "$INSTALLED_CONFIG_ROOT/accounts.json" \
+      "$INSTALLED_CONFIG_ROOT/jira-profiles.json" \
       "$INSTALLED_CONFIG_ROOT/model-stacks.json" \
       "$INSTALLED_CONFIG_ROOT/plugins.json" \
       "$INSTALLED_CONFIG_ROOT/projects.json" \
@@ -835,6 +836,7 @@ attempt_verified_fast_install() (
       "$INSTALLED_CONFIG_ROOT/runtime.json" \
       "$INSTALLED_CONFIG_ROOT/controller-policy.md" \
       "$WORKFLOW_ROOT/config/model-stacks.json" \
+      "$WORKFLOW_ROOT/config/jira-profiles.json" \
       "$WORKFLOW_ROOT/config/plugins.json" \
       "$WORKFLOW_ROOT/config/projects.json" \
       "$WORKFLOW_ROOT/config/providers.json" \
@@ -2426,6 +2428,7 @@ routing_input_sha="$(
     "$CLIPROXY_PORT" "$CLAUDEX_PROXY_PORT" "$ROUTE_PROXY_LISTEN_PORT" \
     "$LEANCTX_PROXY_PORT" \
     "$candidate_config_root/accounts.json" \
+    "$candidate_config_root/jira-profiles.json" \
     "$candidate_config_root/model-stacks.json" \
     "$candidate_config_root/plugins.json" \
     "$candidate_config_root/projects.json" \
@@ -2433,6 +2436,7 @@ routing_input_sha="$(
     "$candidate_config_root/runtime.json" \
     "$candidate_config_root/controller-policy.md" \
     "$WORKFLOW_ROOT/config/model-stacks.json" \
+    "$WORKFLOW_ROOT/config/jira-profiles.json" \
     "$WORKFLOW_ROOT/config/plugins.json" \
     "$WORKFLOW_ROOT/config/projects.json" \
     "$WORKFLOW_ROOT/config/providers.json" \
@@ -2889,6 +2893,7 @@ routing_input_sha="$(
     "$CLIPROXY_PORT" "$CLAUDEX_PROXY_PORT" "$ROUTE_PROXY_LISTEN_PORT" \
     "$LEANCTX_PROXY_PORT" \
     "$INSTALLED_CONFIG_ROOT/accounts.json" \
+    "$INSTALLED_CONFIG_ROOT/jira-profiles.json" \
     "$INSTALLED_CONFIG_ROOT/model-stacks.json" \
     "$INSTALLED_CONFIG_ROOT/plugins.json" \
     "$INSTALLED_CONFIG_ROOT/projects.json" \
@@ -2896,6 +2901,7 @@ routing_input_sha="$(
     "$INSTALLED_CONFIG_ROOT/runtime.json" \
     "$INSTALLED_CONFIG_ROOT/controller-policy.md" \
     "$WORKFLOW_ROOT/config/model-stacks.json" \
+    "$WORKFLOW_ROOT/config/jira-profiles.json" \
     "$WORKFLOW_ROOT/config/plugins.json" \
     "$WORKFLOW_ROOT/config/projects.json" \
     "$WORKFLOW_ROOT/config/providers.json" \

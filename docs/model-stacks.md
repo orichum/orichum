@@ -21,8 +21,8 @@ to new sessions. Live availability is checked again immediately before saving.
 
 ## Project-local JSON mapping
 
-A repository can keep its controller and specialist assignments in
-`.orichum/models.json` instead of changing them through the wizard:
+A repository can keep its controller, specialist assignments, Jira profile
+name, and GitHub account name in `.orichum/config.json`:
 
 ```json
 {
@@ -34,33 +34,28 @@ A repository can keep its controller and specialist assignments in
     "correctness-critic": "claude-sonnet-5",
     "architecture-advisor": "claude-opus-5",
     "implementation-worker": "gpt-5.6-sol"
-  }
+  },
+  "jiraProfile": "work",
+  "githubAccount": "alupao"
 }
 ```
 
-The file must contain exactly those five agent roles. Every value is a logical
-model ID already declared by the machine's private `model-stacks.json`.
-Providers, accounts, pools, credentials, fallback policy, candidate lists,
-commands, and tools cannot be specified in the repository file.
+The file must contain exactly those five agent roles. Every model is a logical
+ID already declared by private `model-stacks.json`. The Jira and GitHub fields
+contain account names only and may be `null`. Providers, credentials, tokens,
+pools, fallback policy, candidate lists, commands, and tools cannot be stored
+in the repository file.
 
 Orichum searches from the canonical launch directory toward the matched
-machine-local context root, includes that root, and uses the nearest file. It
-never searches above the context boundary. An unsafe, malformed, oversized,
-symlinked, or unknown-model mapping fails closed instead of falling back to a
-parent file or machine stack.
+machine-local context root and uses the nearest file. Unsafe, malformed,
+oversized, symlinked, or unknown-model configuration fails closed.
 
-The mapping is converted into a one-session in-memory stack. It is never
-written into private `model-stacks.json` or `projects.json`, and persisted
-named-account locks do not attach to its synthetic candidates. Machine-local
-provider routes, context account pools, active accounts, and live-route checks
-remain authoritative.
-
-When this file exists, `orichum configure` shows its absolute path and keeps the
-Models action read-only; edit the JSON file directly. Account setup and health
-checks remain available. `orichum models resolve` from the project reports the
-file as the effective source. A fresh session adopts edits; resume and a fork
-without `--stack` keep the parent's frozen routes, while an explicit
-`orichum fork --stack` uses the requested machine-local stack.
+The model mapping becomes a one-session in-memory stack. Machine-local provider
+routes, context account pools, active accounts, credentials, and live-route
+checks remain authoritative. `orichum configure` shows the file as read-only
+project authority, and `orichum models resolve` reports it as the effective
+source. Legacy `.orichum/models.json` remains supported for model-only mapping
+but cannot coexist with `config.json` in the same directory.
 
 The advanced stack wizard remains available for ordered startup candidates and
 named-account locks:
@@ -97,9 +92,9 @@ fallback.
 
 Machine-local reusable stack definitions live in `model-stacks.json`, and
 machine-local named account locks live privately in `stack-bindings.json`.
-The optional repository `.orichum/models.json` contains only direct logical
-model assignments. Editing either source does not mutate existing sessions;
-start a fresh session to use the changed definition.
+The repository `.orichum/config.json` contains direct logical model assignments
+and optional Jira/GitHub account names. Editing either source does not mutate
+existing sessions; start a fresh session to use the changed definition.
 
 The standard roles are controller, repository explorer, repository verifier,
 correctness critic, architecture advisor, and implementation worker. Runtime

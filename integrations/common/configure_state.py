@@ -12,8 +12,7 @@ from types import MappingProxyType
 from .account_registry import Account, load_accounts, validate_account_bindings
 from .model_routing import ROLES, RoutingError
 from .orichum_config import ResolvedConfig
-from .project_context import resolve_control_plane_context
-from .project_models import discover_project_models
+from .project_models import resolve_project_context
 from .stack_bindings import StackBindings
 from .stack_catalog import (
     LiveCatalog,
@@ -102,6 +101,9 @@ class ConfigurationSnapshot:
     project_models_path: Path | None = None
     project_models_digest: str | None = field(default=None, repr=False)
     project_models_checked: bool = False
+    project_services_managed: bool = False
+    jira_profile: str | None = None
+    github_account: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -582,9 +584,11 @@ def load_configuration_snapshot(
     accounts = load_accounts(config_root / "accounts.json")
     provider_document = config.documents["providers"]
     validate_account_bindings(accounts, provider_document)
-    resolved = resolve_control_plane_context(
+    resolved, project_models = resolve_project_context(
         config.documents["projects"],
         Path(project),
+        config_root / "jira-profiles.json",
+        stack_snapshot.stacks,
     )
     route = resolved.get("route")
     if not isinstance(route, Mapping):
@@ -603,11 +607,6 @@ def load_configuration_snapshot(
     )
 
     launch_root = Path(str(resolved.get("launchDirReal", project)))
-    project_models = discover_project_models(
-        launch_root,
-        Path(str(route["contextRootReal"])),
-        stack_snapshot.stacks,
-    )
     effective_stacks = (
         project_models.stacks if project_models is not None else stack_snapshot.stacks
     )
@@ -665,4 +664,9 @@ def load_configuration_snapshot(
             project_models.digest if project_models is not None else None
         ),
         project_models_checked=True,
+        project_services_managed=(
+            project_models.manages_services if project_models is not None else False
+        ),
+        jira_profile=route.get("jiraProfile"),
+        github_account=route.get("githubAccount"),
     )

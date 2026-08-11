@@ -10,6 +10,7 @@ from pathlib import Path
 from integrations.common.project_models import (
     ProjectModelsError,
     discover_project_models,
+    resolve_project_context,
 )
 from integrations.common.stack_definition import normalize_model_stacks
 
@@ -65,7 +66,11 @@ def _stacks():
     )
 
 
-def _document(controller: str = "gpt-fast") -> dict[str, object]:
+def _document(
+    controller: str = "gpt-fast",
+    jira_profile: str | None = "work",
+    github_account: str | None = "work-account",
+) -> dict[str, object]:
     return {
         "schemaVersion": 1,
         "controller": controller,
@@ -73,13 +78,41 @@ def _document(controller: str = "gpt-fast") -> dict[str, object]:
             role: "claude-quality" if role == "architecture-advisor" else "gpt-fast"
             for role in _ROLES
         },
+        "jiraProfile": jira_profile,
+        "githubAccount": github_account,
     }
 
 
-def _write(root: Path, document: object) -> Path:
+def _legacy_document(controller: str = "gpt-fast") -> dict[str, object]:
+    document = _document(controller)
+    del document["jiraProfile"]
+    del document["githubAccount"]
+    return document
+
+
+def _projects(root: Path) -> dict[str, object]:
+    return {
+        "schemaVersion": 1,
+        "contexts": [
+            {
+                "root": str(root),
+                "modelStack": "default",
+                "accountPools": ["shared"],
+                "atlassian": {
+                    "url": "https://legacy.atlassian.net",
+                    "username": "legacy@example.com",
+                    "apiToken": "legacy-token",
+                },
+                "githubAccount": "legacy-account",
+            }
+        ],
+    }
+
+
+def _write(root: Path, document: object, filename: str = "config.json") -> Path:
     directory = root / ".orichum"
-    directory.mkdir()
-    path = directory / "models.json"
+    directory.mkdir(exist_ok=True)
+    path = directory / filename
     path.write_text(json.dumps(document), encoding="utf-8")
     return path
 
@@ -93,24 +126,85 @@ class ProjectModelsTests(unittest.TestCase):
         self.child = self.root / "repo" / "src"
         self.child.mkdir(parents=True)
         self.stacks = _stacks()
+        self.profiles = self.outer / "jira-profiles.json"
+        self.profiles.write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "profiles": {
+                        "work": {
+                            "url": "https://work.atlassian.net",
+                            "username": "work@example.com",
+                            "apiToken": "work-token",
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        self.profiles.chmod(0o600)
 
     def test_absence_uses_machine_configuration(self) -> None:
         self.assertIsNone(discover_project_models(self.child, self.root, self.stacks))
 
-    def test_nearest_mapping_wins_and_builds_one_ephemeral_stack(self) -> None:
-        _write(self.root, _document("claude-quality"))
+    def test_nearest_configuration_controls_models_and_services(self) -> None:
+        _write(self.root, _document("claude-quality", None, None))
         nearest = self.child.parent
         path = _write(nearest, _document("gpt-fast"))
 
-        loaded = discover_project_models(self.child, self.root, self.stacks)
+        resolved, loaded = resolve_project_context(
+            _projects(self.root),
+            self.child,
+            self.profiles,
+            self.stacks,
+        )
 
         assert loaded is not None
         self.assertEqual(loaded.path, path)
+        self.assertTrue(loaded.manages_services)
         self.assertEqual(loaded.assignments["controller"], "gpt-fast")
         self.assertEqual(tuple(loaded.stacks.stacks), (loaded.stack_name,))
         controller = loaded.stacks.stacks[loaded.stack_name].controller[0]
         self.assertEqual(controller.providers, ("openai", "other"))
-        self.assertEqual(loaded.stacks.models, self.stacks.models)
+        route = resolved["route"]
+        self.assertIs(route["atlassianConfigured"], True)
+        self.assertEqual(route["jiraProfile"], "work")
+        self.assertEqual(route["githubAccount"], "work-account")
+        self.assertEqual(route["projectConfigSource"], str(path))
+        self.assertEqual(len(route["projectConfigDigest"]), 64)
+
+    def test_explicit_null_disables_machine_service_defaults(self) -> None:
+        _write(self.child, _document(jira_profile=None, github_account=None))
+
+        resolved, loaded = resolve_project_context(
+            _projects(self.root),
+            self.child,
+            self.profiles,
+            self.stacks,
+        )
+
+        assert loaded is not None
+        route = resolved["route"]
+        self.assertIs(route["atlassianConfigured"], False)
+        self.assertIsNone(route["jiraProfile"])
+        self.assertIsNone(route["githubAccount"])
+
+    def test_legacy_models_file_keeps_machine_service_defaults(self) -> None:
+        path = _write(self.child, _legacy_document(), "models.json")
+
+        resolved, loaded = resolve_project_context(
+            _projects(self.root),
+            self.child,
+            self.profiles,
+            self.stacks,
+        )
+
+        assert loaded is not None
+        self.assertEqual(loaded.path, path)
+        self.assertFalse(loaded.manages_services)
+        route = resolved["route"]
+        self.assertIs(route["atlassianConfigured"], True)
+        self.assertEqual(route["githubAccount"], "legacy-account")
 
     def test_context_root_is_included_and_parent_is_ignored(self) -> None:
         _write(self.outer, _document("claude-quality"))
@@ -121,20 +215,27 @@ class ProjectModelsTests(unittest.TestCase):
         assert loaded is not None
         self.assertEqual(loaded.path, path)
 
-    def test_invalid_nearest_mapping_fails_instead_of_using_parent(self) -> None:
+    def test_invalid_nearest_file_and_unknown_profile_fail_closed(self) -> None:
         _write(self.root, _document())
-        directory = self.child.parent / ".orichum"
-        directory.mkdir()
-        (directory / "models.json").write_text("{", encoding="utf-8")
-
+        path = _write(self.child.parent, _document())
+        path.write_text("{", encoding="utf-8")
         with self.assertRaisesRegex(ProjectModelsError, "invalid JSON"):
             discover_project_models(self.child, self.root, self.stacks)
+
+        path.write_text(json.dumps(_document(jira_profile="missing")), encoding="utf-8")
+        with self.assertRaisesRegex(ProjectModelsError, "is not configured"):
+            resolve_project_context(
+                _projects(self.root),
+                self.child,
+                self.profiles,
+                self.stacks,
+            )
 
     def test_rejects_duplicate_keys_unknown_models_and_boolean_schema(self) -> None:
         cases = (
             (
                 '{"schemaVersion":1,"schemaVersion":1,"controller":"gpt-fast",'
-                '"agents":{}}',
+                '"agents":{},"jiraProfile":null,"githubAccount":null}',
                 "duplicate key",
             ),
             (json.dumps(_document("missing-model")), "unknown logical model"),
@@ -145,37 +246,34 @@ class ProjectModelsTests(unittest.TestCase):
         )
         for content, message in cases:
             with self.subTest(message=message):
-                directory = self.child / ".orichum"
-                directory.mkdir(exist_ok=True)
-                (directory / "models.json").write_text(content, encoding="utf-8")
+                path = _write(self.child, _document())
+                path.write_text(content, encoding="utf-8")
                 with self.assertRaisesRegex(ProjectModelsError, message):
                     discover_project_models(self.child, self.root, self.stacks)
 
-    def test_rejects_missing_or_unknown_agent_roles(self) -> None:
-        for agents in (
-            {role: "gpt-fast" for role in _ROLES[:-1]},
-            {**{role: "gpt-fast" for role in _ROLES}, "planning-advisor": "gpt-fast"},
-        ):
-            with self.subTest(agents=tuple(agents)):
-                directory = self.child / ".orichum"
-                directory.mkdir(exist_ok=True)
-                (directory / "models.json").write_text(
-                    json.dumps(
-                        {
-                            "schemaVersion": 1,
-                            "controller": "gpt-fast",
-                            "agents": agents,
-                        }
-                    ),
-                    encoding="utf-8",
-                )
-                with self.assertRaisesRegex(ProjectModelsError, "agents must contain"):
-                    discover_project_models(self.child, self.root, self.stacks)
+    def test_rejects_missing_roles_both_files_and_symlinks(self) -> None:
+        agents = {role: "gpt-fast" for role in _ROLES[:-1]}
+        _write(self.child, {**_document(), "agents": agents})
+        with self.assertRaisesRegex(ProjectModelsError, "agents must contain"):
+            discover_project_models(self.child, self.root, self.stacks)
 
-    def test_rejects_symlinked_directory_or_file(self) -> None:
+        _write(self.child, _legacy_document(), "models.json")
+        with self.assertRaisesRegex(ProjectModelsError, "cannot both be present"):
+            discover_project_models(self.child, self.root, self.stacks)
+
+        directory = self.child / ".orichum"
+        (directory / "config.json").unlink()
+        (directory / "models.json").unlink()
+        target = self.outer / "target.json"
+        target.write_text(json.dumps(_document()), encoding="utf-8")
+        os.symlink(target, directory / "config.json")
+        with self.assertRaisesRegex(ProjectModelsError, "regular file"):
+            discover_project_models(self.child, self.root, self.stacks)
+
+    def test_rejects_symlinked_directory_oversized_and_non_utf8_files(self) -> None:
         target = self.root / "target"
         target.mkdir()
-        (target / "models.json").write_text(json.dumps(_document()), encoding="utf-8")
+        (target / "config.json").write_text(json.dumps(_document()), encoding="utf-8")
         os.symlink(target, self.child / ".orichum")
         with self.assertRaisesRegex(ProjectModelsError, "real directory"):
             discover_project_models(self.child, self.root, self.stacks)
@@ -183,14 +281,7 @@ class ProjectModelsTests(unittest.TestCase):
 
         directory = self.child / ".orichum"
         directory.mkdir()
-        os.symlink(target / "models.json", directory / "models.json")
-        with self.assertRaisesRegex(ProjectModelsError, "regular file"):
-            discover_project_models(self.child, self.root, self.stacks)
-
-    def test_rejects_oversized_and_non_utf8_files(self) -> None:
-        directory = self.child / ".orichum"
-        directory.mkdir()
-        path = directory / "models.json"
+        path = directory / "config.json"
         for content, message in (
             (b"x" * (16 * 1024 + 1), "no larger than 16 KiB"),
             (b"\xff", "UTF-8 JSON"),

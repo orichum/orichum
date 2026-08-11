@@ -41,20 +41,26 @@ jobs:
             integrations/common/configure_state.py \
             integrations/common/configure_wizard.py \
             integrations/common/project_models.py \
+            integrations/common/jira_profiles.py \
             tests/test_terminal_ui.py \
             tests/test_configure_state.py \
             tests/test_project_models.py \
+            tests/test_jira_profiles.py \
             tests/test_configure_wizard.py
           uvx --from ruff==0.16.1 ruff check \
             integrations/common/terminal_ui.py \
             integrations/common/configure_state.py \
             integrations/common/configure_wizard.py \
             integrations/common/project_models.py \
+            integrations/common/jira_profiles.py \
+            integrations/common/atlassian_mcp.py \
             integrations/common/orichum_cli.py \
             tests/test_terminal_ui.py \
             tests/test_configure_state.py \
             tests/test_configure_wizard.py \
             tests/test_project_models.py \
+            tests/test_jira_profiles.py \
+            tests/test_atlassian_mcp.py \
             tests/test_orichum_cli.py \
             tests/test_orichum_completion.py
           python3 -m unittest discover -s tests -p 'test_*.py'

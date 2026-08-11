@@ -256,9 +256,15 @@ def _session_mcp_payload(
                 raise SessionError(
                     "Orichum Atlassian MCP launcher is unavailable"
                 )
+            arguments = [project_root]
+            jira_profile = route.get("jiraProfile")
+            if jira_profile is not None:
+                if not isinstance(jira_profile, str) or not jira_profile:
+                    raise SessionError("project Jira profile is invalid")
+                arguments.append(jira_profile)
             servers["atlassian"] = {
                 "command": str(launcher),
-                "args": [project_root],
+                "args": arguments,
             }
 
     if run_dir is not None and data_root is not None:

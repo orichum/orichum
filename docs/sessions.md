@@ -29,9 +29,10 @@ Every launch re-resolves and validates the project context and live services.
 A newly created logical session then freezes its selected primary route and at
 most one compatible fallback.
 
-If the launch path resolves a valid `.orichum/models.json`, a fresh logical
-session uses that repository mapping before freezing routes. Later edits or
-deletion of the file does not alter the stored logical session.
+If the launch path resolves a valid `.orichum/config.json`, a fresh logical
+session uses its repository model mapping before freezing routes and its Jira
+and GitHub account names for the physical launch. Later edits or deletion do
+not alter the stored logical model route.
 
 ## Resume
 

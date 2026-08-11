@@ -40,28 +40,43 @@ orichum context remove ~/personal --yes
 Repositories added below a configured parent inherit the mapping
 automatically. No context refresh command or Git hook is required.
 
-A nested repository can override only its controller and specialist logical
-models with `.orichum/models.json`. Discovery starts at the canonical launch
-directory, walks upward to and including the matched context root, and uses the
-nearest file. Files above the context root are ignored. A worktree inside the
-context uses its own nearer file; a worktree outside every configured context
-remains unmapped.
+A nested repository can keep all of its simple Orichum choices in one
+`.orichum/config.json`. Discovery starts at the canonical launch directory,
+walks upward to and including the matched context root, and uses the nearest
+file. Files above the context root are ignored.
 
-This repository file does not create a second project context and cannot change
-account pools, GitHub, Jira, providers, credentials, or fallback policy. Those
-settings continue to come from the machine-local context.
+```json
+{
+  "schemaVersion": 1,
+  "controller": "gpt-5.6-terra",
+  "agents": {
+    "repository-explorer": "gpt-5.6-terra",
+    "repository-verifier": "gpt-5.6-terra",
+    "correctness-critic": "claude-sonnet-5",
+    "architecture-advisor": "claude-opus-5",
+    "implementation-worker": "gpt-5.6-sol"
+  },
+  "jiraProfile": "work",
+  "githubAccount": "alupao"
+}
+```
 
-`orichum context jira ROOT` writes the URL, username, and token directly into
-the matching entry in private machine-local `projects.json`. There is no
-separate Jira account registry. Every new physical session freezes whether
-Jira is available and starts the MCP with the current project credentials.
-Rerun the command to rotate credentials; an empty token keeps the existing
-token. Start or resume a session afterward to create a fresh physical MCP
-process.
+Both service values may be `null`, which explicitly disables that integration.
+The file cannot contain URLs, usernames, tokens, credential paths, commands,
+environment values, account pools, provider routes, or fallback policy.
 
-When `githubAccount` is configured, Orichum creates an isolated
-account-specific `GH_CONFIG_DIR` from an existing `gh auth` login. Concurrent
-projects therefore do not change the machine-wide active GitHub account.
+Named Jira credentials remain private in
+`~/.orichum/config/jira-profiles.json`. A selected alias must exist there or
+the launch fails closed. The GitHub account must already be available through
+`gh auth`; Orichum creates an isolated account-specific `GH_CONFIG_DIR`.
+
+Legacy `.orichum/models.json` remains supported for model assignments only.
+It cannot coexist with `config.json` in the same directory and does not replace
+machine-local Jira or GitHub defaults.
+
+`orichum context jira ROOT` remains the compatible machine-local default. Start
+or resume a session after changing credentials or `.orichum/config.json` so a
+fresh physical process receives the current binding.
 
 See [Memory and code intelligence](memory-and-code-graph.md) for LeanCTX
 project identity, worktrees, and shared durable knowledge.

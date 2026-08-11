@@ -374,8 +374,8 @@ for routing_file in \
   printf '%s\n' "$routing_file" >"$routing_generation/$routing_file"
 done
 for routing_file in \
-    accounts.json model-stacks.json plugins.json projects.json \
-    providers.json runtime.json controller-policy.md; do
+    accounts.json jira-profiles.json model-stacks.json plugins.json \
+    projects.json providers.json runtime.json controller-policy.md; do
   printf '%s\n' "$routing_file" >"$routing_config/$routing_file"
 done
 printf '{}\n' >"$routing_data/claude-config/settings.json"
@@ -1545,6 +1545,9 @@ cmp "$fixture/v1-bindings.saved" "$v1_config/stack-bindings.json"
 jq -e '.schemaVersion == 2 and .stacks.balanced' \
   "$v1_candidate/model-stacks.json" >/dev/null
 cmp "$fixture/v1-bindings.saved" "$v1_candidate/stack-bindings.json"
+jq -e '.schemaVersion == 1 and .profiles == {}' \
+  "$v1_candidate/jira-profiles.json" >/dev/null
+[[ "$(path_mode "$v1_candidate/jira-profiles.json")" == 600 ]]
 
 activation_snapshot="$fixture/activation-snapshot"
 install -d -m 0700 "$activation_snapshot"
@@ -1553,6 +1556,9 @@ activate_installed_control_plane \
   "$activation_snapshot" "$lifecycle_lock_path" "$WORKFLOW_LOCK_FD"
 jq -e '.schemaVersion == 2 and .stacks.balanced' \
   "$v1_config/model-stacks.json" >/dev/null
+jq -e '.schemaVersion == 1 and .profiles == {}' \
+  "$v1_config/jira-profiles.json" >/dev/null
+[[ "$(path_mode "$v1_config/jira-profiles.json")" == 600 ]]
 
 trap - ERR
 set +e
@@ -1585,6 +1591,8 @@ trap report_test_failure ERR
 [[ "$activation_failure_rc" -eq 73 ]]
 cmp "$fixture/v1-model-stacks.saved" "$v1_config/model-stacks.json"
 cmp "$fixture/v1-bindings.saved" "$v1_config/stack-bindings.json"
+[[ ! -e "$v1_config/jira-profiles.json" && \
+   ! -L "$v1_config/jira-profiles.json" ]]
 [[ ! -e "$v1_config/plugins.json" && ! -L "$v1_config/plugins.json" ]]
 [[ -z "$(find "$v1_config" -maxdepth 1 -name '.model-stacks.transaction*' \
   -print -quit)" ]]
@@ -1604,6 +1612,13 @@ v2_config="$fixture/v2-config"
 v2_candidate="$fixture/v2-candidate"
 install -d -m 0700 "$v2_config"
 cp -p "$v1_config/"* "$v2_config/"
+printf '%s\n' \
+  '{"schemaVersion":1,"profiles":{"work":{' \
+  '"url":"https://work.atlassian.net",' \
+  '"username":"work@example.com","apiToken":"private-token"}}}' \
+  >"$v2_config/jira-profiles.json"
+chmod 0600 "$v2_config/jira-profiles.json"
+cp "$v2_config/jira-profiles.json" "$fixture/v2-jira-profiles.saved"
 jq '
   .defaultStack = "heavy" |
   .stacks = {heavy: .stacks.balanced}
@@ -1611,12 +1626,16 @@ jq '
 chmod 0600 "$v2_config/model-stacks.json"
 stage_installed_control_plane \
   "$python_bin/python3.14" "$ROOT" "$v2_config" "$v2_candidate"
+cmp "$fixture/v2-jira-profiles.saved" \
+  "$v2_candidate/jira-profiles.json"
 activate_installed_control_plane \
   "$python_bin/python3.14" "$ROOT" "$v2_candidate" "$v2_config" \
   "$fixture/v2-activation-snapshot" \
   "$lifecycle_lock_path" "$WORKFLOW_LOCK_FD"
 jq -e '.schemaVersion == 2 and .stacks.heavy' \
   "$v2_config/model-stacks.json" >/dev/null
+cmp "$fixture/v2-jira-profiles.saved" \
+  "$v2_config/jira-profiles.json"
 cp "$v2_config/model-stacks.json" "$fixture/v2-first-run.saved"
 cp "$v2_config/stack-bindings.json" "$fixture/v2-bindings.saved"
 finalize_installed_control_plane \
@@ -1632,6 +1651,8 @@ activate_installed_control_plane \
   "$lifecycle_lock_path" "$WORKFLOW_LOCK_FD"
 cmp "$fixture/v2-first-run.saved" "$v2_config/model-stacks.json"
 cmp "$fixture/v2-bindings.saved" "$v2_config/stack-bindings.json"
+cmp "$fixture/v2-jira-profiles.saved" \
+  "$v2_config/jira-profiles.json"
 
 concurrent_config="$fixture/concurrent-config"
 concurrent_candidate="$fixture/concurrent-candidate"

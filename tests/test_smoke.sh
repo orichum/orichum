@@ -4,8 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../lib/workflow.sh
 source "$ROOT/lib/workflow.sh"
-[[ "$(<"$ROOT/VERSION")" == 0.1.0-rc.10 ]]
-rg -Fq '## 0.1.0-rc.10 - 2026-08-12' "$ROOT/CHANGELOG.md"
+[[ "$(<"$ROOT/VERSION")" == 0.1.0-rc.11 ]]
+rg -Fq '## 0.1.0-rc.11 - 2026-08-12' "$ROOT/CHANGELOG.md"
 rg -Fq 'orichum --version' "$ROOT/docs/cli-reference.md"
 rg -Fq '[Changelog](CHANGELOG.md)' "$ROOT/README.md"
 rg -Fq 'orichum sessions cleanup' \
@@ -264,6 +264,13 @@ rg -Fq 'Manual recovery: orichum provider account add --help' \
 rg -Fq 'Private CPython 3.14' "$ROOT/doctor.sh"
 rg -Fq 'validate_stack_bindings' "$ROOT/doctor.sh"
 rg -Fq 'load_accounts(config_root / "accounts.json")' "$ROOT/doctor.sh"
+jq -e '
+  .schemaVersion == 1 and
+  .controller == "gpt-5.6-terra" and
+  (.agents | keys | length) == 5 and
+  .jiraProfile == null and
+  .githubAccount == "alupao"
+' "$ROOT/.orichum/config.json" >/dev/null
 for leanctx_install_contract in \
     'provision_leanctx_embeddings' \
     'verified_leanctx_ort_dylib_path' \

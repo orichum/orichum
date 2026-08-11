@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Resolve repository-local model assignments within one project context."""
+"""Resolve one repository-local Orichum configuration file."""
 
 from __future__ import annotations
 
@@ -12,7 +12,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 
+from .github_identity import GithubIdentityError, validate_github_account
+from .jira_profiles import (
+    AtlassianConfig,
+    AtlassianError,
+    load_jira_profiles,
+    validate_jira_profile,
+)
 from .model_routing import ROLES, RoutingError, validate_model_id
+from .project_context import resolve_control_plane_context
 from .stack_definition import (
     NormalizedStacks,
     StackCandidate,
@@ -20,28 +28,32 @@ from .stack_definition import (
     candidate_id,
 )
 
-_MAX_PROJECT_MODELS_BYTES = 16 * 1024
+_MAX_PROJECT_CONFIG_BYTES = 16 * 1024
 _PROJECT_DIRECTORY = ".orichum"
-_PROJECT_FILE = "models.json"
+_PROJECT_FILE = "config.json"
+_LEGACY_PROJECT_FILE = "models.json"
 
 
 class ProjectModelsError(RoutingError):
-    """A repository-local model mapping is unsafe or invalid."""
+    """A repository-local Orichum configuration is unsafe or invalid."""
 
 
 @dataclass(frozen=True)
 class ProjectModels:
-    """Validated repository assignments and their ephemeral model stack."""
+    """Validated repository configuration and its ephemeral model stack."""
 
     path: Path
     digest: str
     stack_name: str
     assignments: Mapping[str, str]
     stacks: NormalizedStacks
+    jira_profile: str | None
+    github_account: str | None
+    manages_services: bool
 
 
 def _error(path: Path, message: str) -> ProjectModelsError:
-    return ProjectModelsError(f"project model mapping {path}: {message}")
+    return ProjectModelsError(f"project configuration {path}: {message}")
 
 
 def _same_object(first: os.stat_result, second: os.stat_result) -> bool:
@@ -50,20 +62,18 @@ def _same_object(first: os.stat_result, second: os.stat_result) -> bool:
 
 def _same_state(first: os.stat_result, second: os.stat_result) -> bool:
     return (
-        first.st_dev,
-        first.st_ino,
-        first.st_size,
-        first.st_mtime_ns,
-    ) == (
-        second.st_dev,
-        second.st_ino,
-        second.st_size,
-        second.st_mtime_ns,
+        _same_object(first, second)
+        and stat.S_IFMT(first.st_mode) == stat.S_IFMT(second.st_mode)
+        and stat.S_IMODE(first.st_mode) == stat.S_IMODE(second.st_mode)
+        and first.st_uid == second.st_uid
+        and first.st_size == second.st_size
+        and first.st_mtime_ns == second.st_mtime_ns
+        and first.st_ctime_ns == second.st_ctime_ns
     )
 
 
-def _read_candidate(directory: Path) -> tuple[Path, bytes] | None:
-    source = directory / _PROJECT_FILE
+def _read_candidate(directory: Path, filename: str) -> tuple[Path, bytes] | None:
+    source = directory / filename
     try:
         observed_directory = os.lstat(directory)
     except FileNotFoundError:
@@ -84,11 +94,11 @@ def _read_candidate(directory: Path) -> tuple[Path, bytes] | None:
         raise _error(source, "configuration directory is unsafe") from error
     try:
         opened_directory = os.fstat(directory_fd)
-        if not _same_object(observed_directory, opened_directory):
+        if not _same_state(observed_directory, opened_directory):
             raise _error(source, "configuration directory changed while opening")
         try:
             observed_file = os.stat(
-                _PROJECT_FILE,
+                filename,
                 dir_fd=directory_fd,
                 follow_symlinks=False,
             )
@@ -100,14 +110,14 @@ def _read_candidate(directory: Path) -> tuple[Path, bytes] | None:
             stat.S_ISLNK(observed_file.st_mode)
             or not stat.S_ISREG(observed_file.st_mode)
             or observed_file.st_size < 1
-            or observed_file.st_size > _MAX_PROJECT_MODELS_BYTES
+            or observed_file.st_size > _MAX_PROJECT_CONFIG_BYTES
         ):
             raise _error(source, "file must be a regular file no larger than 16 KiB")
 
         file_flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
         file_flags |= getattr(os, "O_NOFOLLOW", 0)
         try:
-            file_fd = os.open(_PROJECT_FILE, file_flags, dir_fd=directory_fd)
+            file_fd = os.open(filename, file_flags, dir_fd=directory_fd)
         except OSError as error:
             raise _error(source, "file is unsafe") from error
         try:
@@ -115,7 +125,7 @@ def _read_candidate(directory: Path) -> tuple[Path, bytes] | None:
             if not _same_state(observed_file, opened_file):
                 raise _error(source, "file changed while opening")
             chunks = []
-            remaining = _MAX_PROJECT_MODELS_BYTES + 1
+            remaining = _MAX_PROJECT_CONFIG_BYTES + 1
             while remaining:
                 chunk = os.read(file_fd, remaining)
                 if not chunk:
@@ -126,7 +136,7 @@ def _read_candidate(directory: Path) -> tuple[Path, bytes] | None:
             try:
                 after_file = os.fstat(file_fd)
                 current_file = os.stat(
-                    _PROJECT_FILE,
+                    filename,
                     dir_fd=directory_fd,
                     follow_symlinks=False,
                 )
@@ -136,7 +146,7 @@ def _read_candidate(directory: Path) -> tuple[Path, bytes] | None:
                     "file changed or became unavailable while reading",
                 ) from error
             if (
-                len(content) > _MAX_PROJECT_MODELS_BYTES
+                len(content) > _MAX_PROJECT_CONFIG_BYTES
                 or not _same_state(opened_file, after_file)
                 or not _same_state(after_file, current_file)
             ):
@@ -150,7 +160,7 @@ def _read_candidate(directory: Path) -> tuple[Path, bytes] | None:
                 source,
                 "configuration directory changed or became unavailable while reading",
             ) from error
-        if not _same_object(opened_directory, current_directory):
+        if not _same_state(opened_directory, current_directory):
             raise _error(source, "configuration directory changed while reading")
         return source, content
     finally:
@@ -170,11 +180,13 @@ def _reject_constant(value: str) -> object:
     raise ValueError(f"non-finite value {value}")
 
 
-def _parse_assignments(
+def _parse_configuration(
     path: Path,
     content: bytes,
     models: Mapping[str, object],
-) -> Mapping[str, str]:
+    *,
+    manages_services: bool,
+) -> tuple[Mapping[str, str], str | None, str | None]:
     try:
         text = content.decode("utf-8")
     except UnicodeError as error:
@@ -187,15 +199,12 @@ def _parse_assignments(
         )
     except (ValueError, json.JSONDecodeError) as error:
         raise _error(path, f"invalid JSON ({error})") from error
-    if not isinstance(document, dict) or set(document) != {
-        "schemaVersion",
-        "controller",
-        "agents",
-    }:
-        raise _error(
-            path,
-            "top level must contain exactly schemaVersion, controller, and agents",
-        )
+    expected = {"schemaVersion", "controller", "agents"}
+    if manages_services:
+        expected.update(("jiraProfile", "githubAccount"))
+    if not isinstance(document, dict) or set(document) != expected:
+        required = ", ".join(sorted(expected))
+        raise _error(path, f"top level must contain exactly {required}")
     if type(document["schemaVersion"]) is not int or document["schemaVersion"] != 1:
         raise _error(path, "schemaVersion must be exactly 1")
     agents = document["agents"]
@@ -214,7 +223,21 @@ def _parse_assignments(
         if model not in models:
             raise _error(path, f"{role} references unknown logical model {model}")
         assignments[role] = model
-    return MappingProxyType(assignments)
+
+    jira_profile = None
+    github_account = None
+    if manages_services:
+        jira_profile = document["jiraProfile"]
+        if jira_profile is not None:
+            try:
+                jira_profile = validate_jira_profile(jira_profile)
+            except AtlassianError as error:
+                raise _error(path, str(error)) from error
+        try:
+            github_account = validate_github_account(document["githubAccount"])
+        except GithubIdentityError as error:
+            raise _error(path, str(error)) from error
+    return MappingProxyType(assignments), jira_profile, github_account
 
 
 def _ephemeral_stacks(
@@ -250,24 +273,38 @@ def discover_project_models(
     context_root: Path,
     base: NormalizedStacks,
 ) -> ProjectModels | None:
-    """Load the nearest project mapping without crossing its context root."""
+    """Load the nearest project configuration without crossing its context root."""
     try:
         launch = Path(launch_dir).resolve(strict=True)
         root = Path(context_root).resolve(strict=True)
         launch.relative_to(root)
     except (OSError, ValueError) as error:
         raise ProjectModelsError(
-            "project model discovery must stay inside the configured context"
+            "project configuration discovery must stay inside the configured context"
         ) from error
     if not launch.is_dir() or not root.is_dir():
-        raise ProjectModelsError("project model discovery requires directories")
+        raise ProjectModelsError("project configuration discovery requires directories")
 
     current = launch
     while True:
-        loaded = _read_candidate(current / _PROJECT_DIRECTORY)
+        directory = current / _PROJECT_DIRECTORY
+        configured = _read_candidate(directory, _PROJECT_FILE)
+        legacy = _read_candidate(directory, _LEGACY_PROJECT_FILE)
+        if configured is not None and legacy is not None:
+            raise _error(
+                configured[0],
+                "config.json and legacy models.json cannot both be present",
+            )
+        loaded = configured or legacy
         if loaded is not None:
             path, content = loaded
-            assignments = _parse_assignments(path, content, base.models)
+            manages_services = configured is not None
+            assignments, jira_profile, github_account = _parse_configuration(
+                path,
+                content,
+                base.models,
+                manages_services=manages_services,
+            )
             stack_name, stacks = _ephemeral_stacks(content, assignments, base)
             return ProjectModels(
                 path=path,
@@ -275,7 +312,46 @@ def discover_project_models(
                 stack_name=stack_name,
                 assignments=assignments,
                 stacks=stacks,
+                jira_profile=jira_profile,
+                github_account=github_account,
+                manages_services=manages_services,
             )
         if current == root:
             return None
         current = current.parent
+
+
+def resolve_project_context(
+    project_document: object,
+    launch_dir: Path,
+    jira_profiles_path: Path,
+    base: NormalizedStacks,
+) -> tuple[dict[str, object], ProjectModels | None]:
+    resolved = resolve_control_plane_context(project_document, launch_dir)
+    route = resolved.get("route")
+    if not isinstance(route, Mapping):
+        return resolved, None
+    project_models = discover_project_models(
+        Path(str(resolved["launchDirReal"])),
+        Path(str(route["contextRootReal"])),
+        base,
+    )
+    if project_models is None or not project_models.manages_services:
+        return resolved, project_models
+    profiles: Mapping[str, AtlassianConfig] = {}
+    if project_models.jira_profile is not None:
+        profiles = load_jira_profiles(jira_profiles_path)
+        if project_models.jira_profile not in profiles:
+            raise ProjectModelsError(
+                f"project configuration {project_models.path}: Jira profile "
+                f"{project_models.jira_profile} is not configured"
+            )
+    selected_route = dict(route)
+    selected_route["atlassianConfigured"] = project_models.jira_profile is not None
+    selected_route["jiraProfile"] = project_models.jira_profile
+    selected_route["githubAccount"] = project_models.github_account
+    selected_route["projectConfigSource"] = str(project_models.path)
+    selected_route["projectConfigDigest"] = project_models.digest
+    selected = dict(resolved)
+    selected["route"] = selected_route
+    return selected, project_models

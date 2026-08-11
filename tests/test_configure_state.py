@@ -263,12 +263,8 @@ class ConfigureStateTests(unittest.TestCase):
                 return_value=existing.accounts[:2],
             ),
             mock.patch(
-                "integrations.common.configure_state.resolve_control_plane_context",
-                return_value={"route": route},
-            ),
-            mock.patch(
-                "integrations.common.configure_state.discover_project_models",
-                return_value=None,
+                "integrations.common.configure_state.resolve_project_context",
+                return_value=({"route": route}, None),
             ),
             mock.patch(
                 "integrations.common.stack_wizard._runtime_catalog_port",

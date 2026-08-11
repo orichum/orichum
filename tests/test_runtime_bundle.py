@@ -101,7 +101,7 @@ class RuntimeBundleTests(unittest.TestCase):
             identity,
             {
                 "schemaVersion": 1,
-                "version": "0.1.0-rc.10",
+                "version": "0.1.0-rc.11",
                 "sourceKind": "git",
                 "sourceCommit": commit,
                 "dirty": False,
@@ -111,7 +111,7 @@ class RuntimeBundleTests(unittest.TestCase):
 
     def test_build_records_exact_matching_release_tag(self) -> None:
         source, commit = self.git_source()
-        self.git(source, "tag", "v0.1.0-rc.10")
+        self.git(source, "tag", "v0.1.0-rc.11")
 
         identity = self.build_identity(build(source, self.stage))
 
@@ -156,7 +156,7 @@ class RuntimeBundleTests(unittest.TestCase):
             identity,
             {
                 "schemaVersion": 1,
-                "version": "0.1.0-rc.10",
+                "version": "0.1.0-rc.11",
                 "sourceKind": "source",
                 "sourceCommit": None,
                 "dirty": False,

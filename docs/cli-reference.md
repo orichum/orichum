@@ -81,9 +81,9 @@ file differed from that commit. Builds without Git metadata add
 | `orichum fork ID [--stack STACK] [--handoff-file FILE] [--leanctx-profile lean\|full]` | Create a child session; inherit the parent LeanCTX profile unless explicitly overridden |
 
 When `STACK` is omitted, `orichum models resolve` checks the current project for
-`.orichum/models.json` and includes its absolute `source` path when active. An
-explicit `STACK` bypasses the repository mapping and resolves that named
-machine-local stack.
+`.orichum/config.json` and includes its absolute `source` path when active. A
+legacy `.orichum/models.json` is also accepted. An explicit `STACK` bypasses the
+repository mapping and resolves that named machine-local stack.
 
 Forward ordinary Claude Code arguments after `--`, for example:
 

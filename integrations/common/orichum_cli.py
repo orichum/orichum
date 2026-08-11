@@ -100,7 +100,11 @@ from .project_context import (
     control_plane_transaction,
     resolve_control_plane_context,
 )
-from .project_models import ProjectModels, discover_project_models
+from .project_models import (
+    ProjectModels,
+    discover_project_models,
+    resolve_project_context,
+)
 from .provider_credentials import (
     CredentialError,
     credential_metadata_transaction,
@@ -1291,16 +1295,11 @@ def _session_model_inputs(
     paths: Mapping[str, Path],
     config: ResolvedConfig,
     context: Mapping[str, object],
+    project_models: ProjectModels | None,
 ) -> tuple[Mapping[str, object], str | None, StackBindings, ProjectModels | None]:
     route = context.get("route")
     if not isinstance(route, Mapping):
         raise CliError("launch directory is not mapped to an Orichum project")
-    base = normalize_model_stacks(config.documents["model-stacks"])
-    project_models = discover_project_models(
-        Path(str(context["launchDirReal"])),
-        Path(str(route["contextRootReal"])),
-        base,
-    )
     if project_models is None:
         return (
             config.documents,
@@ -1325,14 +1324,18 @@ def _prepare_new_session(
     leanctx_profile: str = DEFAULT_LEANCTX_PROFILE,
 ) -> PreparedLaunch:
     _verify_runtime(paths)
-    context = resolve_control_plane_context(
-        config.documents["projects"], launch_dir
+    base = normalize_model_stacks(config.documents["model-stacks"])
+    context, project_models = resolve_project_context(
+        config.documents["projects"],
+        launch_dir,
+        Path(paths["config"]) / "jira-profiles.json",
+        base,
     )
     route = context.get("route")
     if not isinstance(route, dict):
         raise CliError("launch directory is not mapped to an Orichum project")
     session_config, requested_stack, bindings, _project_models = (
-        _session_model_inputs(paths, config, context)
+        _session_model_inputs(paths, config, context, project_models)
     )
     accounts = load_accounts(paths["config"] / "accounts.json")
     validate_account_bindings(accounts, config.documents["providers"])
@@ -1385,8 +1388,11 @@ def _prepare_resume(
 ) -> PreparedLaunch:
     _verify_runtime(paths)
     logical = resolve_logical_session(paths["state"], identifier)
-    context = resolve_control_plane_context(
-        config.documents["projects"], launch_dir
+    context, _project_models = resolve_project_context(
+        config.documents["projects"],
+        launch_dir,
+        Path(paths["config"]) / "jira-profiles.json",
+        normalize_model_stacks(config.documents["model-stacks"]),
     )
     route = context.get("route")
     if (
@@ -1478,8 +1484,11 @@ def _prepare_fork(
 ) -> tuple[PreparedLaunch, str]:
     _verify_runtime(paths)
     parent = load_logical_session(paths["state"], identifier)
-    context = resolve_control_plane_context(
-        config.documents["projects"], launch_dir
+    context, _project_models = resolve_project_context(
+        config.documents["projects"],
+        launch_dir,
+        Path(paths["config"]) / "jira-profiles.json",
+        normalize_model_stacks(config.documents["model-stacks"]),
     )
     route = context.get("route")
     if (
@@ -2445,14 +2454,18 @@ def _setup_project_ready(
 ) -> bool:
     try:
         _verify_runtime(paths)
-        context = resolve_control_plane_context(
-            config.documents["projects"], project
+        base = normalize_model_stacks(config.documents["model-stacks"])
+        context, project_models = resolve_project_context(
+            config.documents["projects"],
+            project,
+            Path(paths["config"]) / "jira-profiles.json",
+            base,
         )
         route = context.get("route")
         if not isinstance(route, dict):
             return False
         session_config, requested_stack, bindings, _project_models = (
-            _session_model_inputs(paths, config, context)
+            _session_model_inputs(paths, config, context, project_models)
         )
         accounts = load_accounts(paths["config"] / "accounts.json")
         validate_account_bindings(accounts, config.documents["providers"])
@@ -3032,7 +3045,9 @@ def _materialize_launch_policy(
         raise CliError("session project binding is unavailable")
     project_root = route.get("contextRootReal")
     atlassian_configured = route.get("atlassianConfigured")
+    jira_profile = route.get("jiraProfile")
     github_account = route.get("githubAccount")
+    project_config_source = route.get("projectConfigSource")
     if (
         not isinstance(project_root, str)
         or not project_root
@@ -3040,8 +3055,19 @@ def _materialize_launch_policy(
             type(atlassian_configured) is not bool
         )
         or (
+            jira_profile is not None
+            and (not isinstance(jira_profile, str) or not jira_profile)
+        )
+        or (
             github_account is not None
             and (not isinstance(github_account, str) or not github_account)
+        )
+        or (
+            project_config_source is not None
+            and (
+                not isinstance(project_config_source, str)
+                or not project_config_source
+            )
         )
     ):
         raise CliError("session project binding is invalid")
@@ -3054,7 +3080,9 @@ def _materialize_launch_policy(
         "These values are frozen and authoritative for this physical session:\n\n"
         f"- Project context root: {json.dumps(project_root)}\n"
         f"- Jira configured: {'yes' if atlassian_configured else 'no'}\n"
+        f"- Jira profile: {shown(jira_profile)}\n"
         f"- GitHub account: {shown(github_account)}\n"
+        f"- Repository configuration file: {shown(project_config_source)}\n"
         "- LeanCTX project memory follows the verified project root.\n\n"
         "When Jira is configured, the `atlassian` MCP server is already "
         "bound to this physical session and project. Diagnose empty or "

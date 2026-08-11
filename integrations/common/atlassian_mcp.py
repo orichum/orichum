@@ -4,14 +4,18 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
 import json
 import os
-from pathlib import Path
 import sys
-from typing import Mapping, Sequence
-from urllib.parse import urlsplit
+from collections.abc import Mapping, Sequence
+from pathlib import Path
 
+from .jira_profiles import (
+    AtlassianConfig,
+    AtlassianError,
+    load_jira_profiles,
+    normalize_atlassian,
+)
 
 _SAFE_ENVIRONMENT_KEYS = frozenset(
     {
@@ -40,80 +44,11 @@ _SAFE_ENVIRONMENT_KEYS = frozenset(
 )
 
 
-class AtlassianError(RuntimeError):
-    """A project Atlassian configuration is invalid or unavailable."""
-
-
-def _non_blank(value: object, label: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise AtlassianError(f"{label} must be a non-empty string")
-    return value.strip()
-
-
-def _jira_url(value: object) -> str:
-    value = _non_blank(value, "Jira URL").rstrip("/")
-    try:
-        parsed = urlsplit(value)
-    except ValueError as error:
-        raise AtlassianError("Jira URL is invalid") from error
-    if (
-        parsed.scheme != "https"
-        or not parsed.netloc
-        or parsed.username is not None
-        or parsed.password is not None
-        or parsed.query
-        or parsed.fragment
-    ):
-        raise AtlassianError(
-            "Jira URL must be an HTTPS origin without credentials, "
-            "a query, or a fragment"
-        )
-    return value
-
-
-@dataclass(frozen=True)
-class AtlassianConfig:
-    url: str
-    username: str
-    api_token: str
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "url", _jira_url(self.url))
-        object.__setattr__(
-            self, "username", _non_blank(self.username, "Jira username")
-        )
-        object.__setattr__(
-            self, "api_token", _non_blank(self.api_token, "Jira API token")
-        )
-
-    def as_json(self) -> dict[str, str]:
-        return {
-            "url": self.url,
-            "username": self.username,
-            "apiToken": self.api_token,
-        }
-
-
-def normalize_atlassian(value: object) -> AtlassianConfig | None:
-    if value is None:
-        return None
-    if not isinstance(value, dict) or set(value) != {
-        "url",
-        "username",
-        "apiToken",
-    }:
-        raise AtlassianError(
-            "atlassian must contain exactly url, username, and apiToken"
-        )
-    return AtlassianConfig(
-        url=value["url"],
-        username=value["username"],
-        api_token=value["apiToken"],
-    )
-
-
 def load_project_atlassian(
-    config_path: Path, project_root: Path
+    config_path: Path,
+    profiles_path: Path,
+    project_root: Path,
+    profile: str | None = None,
 ) -> AtlassianConfig:
     try:
         document = json.loads(Path(config_path).read_text(encoding="utf-8"))
@@ -133,6 +68,14 @@ def load_project_atlassian(
         except (TypeError, OSError, RuntimeError) as error:
             raise AtlassianError("projects configuration is invalid") from error
         if root == project_root:
+            if profile is not None:
+                profiles = load_jira_profiles(profiles_path)
+                try:
+                    return profiles[profile]
+                except KeyError as error:
+                    raise AtlassianError(
+                        f"Jira profile {profile} is not configured"
+                    ) from error
             configured = normalize_atlassian(context.get("atlassian"))
             if configured is None:
                 raise AtlassianError(
@@ -183,9 +126,18 @@ def managed_binary(data_root: Path) -> Path:
 
 
 def serve(
-    data_root: Path, config_path: Path, project_root: Path
+    data_root: Path,
+    config_path: Path,
+    profiles_path: Path,
+    project_root: Path,
+    profile: str | None = None,
 ) -> None:
-    config = load_project_atlassian(config_path, project_root)
+    config = load_project_atlassian(
+        config_path,
+        profiles_path,
+        project_root,
+        profile,
+    )
     binary = managed_binary(data_root)
     os.execve(str(binary), [str(binary)], mcp_environment(config))
 
@@ -194,10 +146,18 @@ def main(arguments: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="orichum-atlassian-mcp")
     parser.add_argument("data_root", type=Path)
     parser.add_argument("config_path", type=Path)
+    parser.add_argument("profiles_path", type=Path)
     parser.add_argument("project_root", type=Path)
+    parser.add_argument("profile", nargs="?")
     parsed = parser.parse_args(arguments)
     try:
-        serve(parsed.data_root, parsed.config_path, parsed.project_root)
+        serve(
+            parsed.data_root,
+            parsed.config_path,
+            parsed.profiles_path,
+            parsed.project_root,
+            parsed.profile,
+        )
     except (AtlassianError, OSError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1

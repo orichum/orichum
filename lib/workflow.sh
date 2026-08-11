@@ -2359,6 +2359,7 @@ verified_routing_runtime_artifact() {
     "$active_claudex" "$active_models" "$active_effective" \
     "$data_root/claude-config/settings.json" \
     "$config_root/accounts.json" \
+    "$config_root/jira-profiles.json" \
     "$config_root/model-stacks.json" \
     "$config_root/plugins.json" \
     "$config_root/projects.json" \

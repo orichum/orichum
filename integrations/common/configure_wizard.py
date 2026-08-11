@@ -144,7 +144,32 @@ def _configuration_rows(
     )
 
 
-def _show_advanced(io: WizardIO) -> None:
+def _project_configuration_rows(
+    snapshot: ConfigurationSnapshot,
+) -> tuple[tuple[str, str], ...]:
+    rows = [("File", str(snapshot.project_models_path))]
+    if snapshot.project_services_managed:
+        rows.extend(
+            (
+                ("Jira profile", snapshot.jira_profile or "Disabled"),
+                ("GitHub account", snapshot.github_account or "Disabled"),
+            )
+        )
+    rows.extend(
+        (
+            ("Effect", "Authoritative for new sessions"),
+            ("Edit", "Open this JSON file in your editor"),
+        )
+    )
+    return tuple(rows)
+
+
+def _show_advanced(io: WizardIO, snapshot: ConfigurationSnapshot) -> None:
+    if snapshot.project_models_path is not None:
+        io.section(
+            "Project configuration",
+            _project_configuration_rows(snapshot),
+        )
     io.section(
         "Advanced commands",
         (
@@ -204,12 +229,8 @@ def _models_menu(
 ) -> ConfigurationDraft:
     if snapshot.project_models_path is not None:
         io.section(
-            "Project model file",
-            (
-                ("File", str(snapshot.project_models_path)),
-                ("Effect", "Authoritative for new sessions"),
-                ("Edit", "Open this JSON file in your editor"),
-            ),
+            "Project configuration",
+            _project_configuration_rows(snapshot),
         )
         return draft
     selected = io.choose(
@@ -643,4 +664,4 @@ def run_configure(
             if completed:
                 return 0
         elif selected == 3:
-            _show_advanced(ui)
+            _show_advanced(ui, snapshot)

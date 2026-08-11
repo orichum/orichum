@@ -327,12 +327,12 @@ jobs:
           ' "$ORICHUM_CONFIG_HOME/projects.json" >/dev/null
           printf -v configure_command \
             'orichum configure --project %q' "$GITHUB_WORKSPACE"
-          printf '6\n' | script --quiet --return \
+          printf '5\n' | script --quiet --return \
             --command "$configure_command" \
             "$RUNNER_TEMP/orichum-configure.log"
           grep -Fq 'Configuring Orichum' \
             "$RUNNER_TEMP/orichum-configure.log"
-          grep -Fq 'Models and agents' \
+          grep -Fq '1. Models' \
             "$RUNNER_TEMP/orichum-configure.log"
           if grep -Eq 'oc-[acr]-[0-9a-f]{16}|credentialRef|127\.0\.0\.1' \
               "$RUNNER_TEMP/orichum-configure.log"; then

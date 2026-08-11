@@ -7,17 +7,16 @@ isolated coverage.
 
 ## Verdict
 
-The `0.1.0-rc.10` candidate passes native macOS ARM64, native Linux AMD64,
-and deterministic regression coverage. The final runtime and native gates ran
-against source commit `a4bdea805bb3ba6bfc5c1e02502bb03a405b186e`; the main
-contract passed against the same commit. This release adds bounded streaming
-recovery and request lifecycle telemetry, simplifies guided configuration,
-introduces strict repository-local logical-model assignments, and reduces the
-default LeanCTX schema and instruction overhead. The latest provider-backed
-request evidence is carried forward from the `0.1.0-rc.4` baseline. The Linux
-gate also exercises the WSL-compatible systemd-user contract in an isolated
-Ubuntu container; native WSL execution remains a separate release-environment
-check.
+The `0.1.0-rc.11` candidate passes native macOS ARM64, native Linux AMD64,
+and deterministic regression coverage. The final runtime, native gates, and
+main contract ran against source commit
+`62a5402f3c8a701e156adeb63c9581f7271308c8`. This release unifies
+repository-owned model assignments, Jira profile selection, and GitHub account
+selection in one `.orichum/config.json`, while keeping credentials private and
+preserving legacy model-only selectors. The latest provider-backed request
+evidence is carried forward from the `0.1.0-rc.4` baseline. The Linux gate also
+exercises the WSL-compatible systemd-user contract in an isolated Ubuntu
+container; native WSL execution remains a separate release-environment check.
 
 Every pull request and `main` push runs one fast Linux contract check. The
 costlier native macOS ARM64 and Linux AMD64 acceptance workflows remain manual
@@ -44,7 +43,22 @@ The following observed installation and service evidence was recorded on
 | Linux/systemd | Fresh and repeat installs completed in an Ubuntu 24.04 systemd-user container; the repeat completed in 7 seconds with one runtime release and no traceback |
 | Provider-free install | CLIProxyAPI remained active, the route proxy remained intentionally inactive, and the installer reported the bounded `pending-provider-login` state |
 | Migration safety | Consolidated-home migration, failed-install rollback, and retry behavior passed the transaction contract |
-| Local regression | The final `0.1.0-rc.10` source passed 638 Python tests and the smoke suite; the native Linux gate passed all eight shell acceptance suites plus the WSL-compatible systemd-user contract on 2026-08-12 |
+| Local regression | The final `0.1.0-rc.11` source passed 643 Python tests with one skip and the smoke suite; the native Linux gate passed all eight shell acceptance suites plus the WSL-compatible systemd-user contract on 2026-08-12 |
+
+## 0.1.0-rc.11 release gates
+
+The final deterministic and native gates passed against source commit
+`62a5402f3c8a701e156adeb63c9581f7271308c8`:
+
+| Gate | Result |
+|---|---|
+| [Main Contract](https://github.com/orichum/orichum/actions/runs/31536897843) | Pass |
+| [macOS ARM64 acceptance](https://github.com/orichum/orichum/actions/runs/31536909896) | Pass |
+| [Linux AMD64 and WSL-compatible acceptance](https://github.com/orichum/orichum/actions/runs/31536906705) | Pass |
+
+The final runs completed repository tests, setup, installation, route
+activation, LeanCTX verification, fast reconciliation, explicit upgrade,
+guided configuration, uninstall, and platform-specific lifecycle coverage.
 
 ## 0.1.0-rc.10 release gates
 

@@ -39,10 +39,13 @@ Orichum supports macOS, Linux with a systemd user manager, and WSL2 with
 systemd enabled.
 
 ```bash
-git clone https://github.com/orichum/orichum.git
-cd orichum
-./install.sh
+curl -fsSL https://raw.githubusercontent.com/orichum/orichum/main/bootstrap.sh | bash
 ```
+
+The bootstrap installs missing prerequisites, including Claude Code, Codex CLI,
+uv, jq, and the host tools Orichum requires. It keeps its checkout at
+`~/.local/share/orichum`; rerunning the same command updates it and reconciles
+the installation.
 
 The installer prepares the complete local runtime. Without a provider account,
 it completes safely in `pending-provider-login` state and prints one next

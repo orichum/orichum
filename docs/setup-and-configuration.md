@@ -28,14 +28,18 @@ Release-accepted hosts are:
 The installer recognizes macOS x86-64 and Linux arm64, but those paths have
 not completed native release acceptance.
 
-Required host commands are `bash`, `curl`, `gh`, `git`, `jq`, `python3` 3.10
-or newer, `rg`, `tar`, `uv`, and Claude Code. Linux and WSL also require `ss`,
-normally supplied by `iproute2`.
+For a new installation, copy and run:
 
-The host Python only bootstraps installation. The installed CLI and services
-use Orichum's private CPython runtime.
+```bash
+curl -fsSL https://raw.githubusercontent.com/orichum/orichum/main/bootstrap.sh | bash
+```
 
-### Run the installer
+The bootstrap installs missing prerequisites, including Claude Code, Codex CLI,
+uv, jq, and required host tools. It clones Orichum to
+`~/.local/share/orichum`, then runs its installer. Automatic host-package
+installation supports Ubuntu and macOS with Homebrew. Direct installation from
+a checkout remains available for supported hosts that already have the required
+commands:
 
 ```bash
 git clone https://github.com/orichum/orichum.git

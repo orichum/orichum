@@ -4,6 +4,18 @@ All notable Orichum changes are recorded here.
 
 ## Unreleased
 
+## 0.1.0-rc.13 - 2026-08-13
+
+### Added
+
+- A one-command bootstrap installer clones or updates Orichum, provisions
+  supported host prerequisites, installs Claude Code, Codex CLI, uv, and jq,
+  then starts the normal installer.
+
+### Changed
+
+- Installation documentation now presents the copy-paste bootstrap command as
+  the default path while retaining direct checkout installation for manual use.
 ## 0.1.0-rc.12 - 2026-08-12
 
 ### Added

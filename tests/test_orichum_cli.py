@@ -1803,6 +1803,78 @@ class OrichumCliTests(unittest.TestCase):
 
         cancel.assert_called_once_with(endpoint, session.state)
 
+    def test_setup_project_config_preserves_named_jira_profile(self) -> None:
+        from tests.test_configure_state import _snapshot
+
+        snapshot = _snapshot()
+        project = self.root / "project"
+        project.mkdir()
+        config = SimpleNamespace(
+            documents={
+                "model-stacks": serialize_model_stacks(snapshot.stacks),
+                "projects": {},
+            }
+        )
+        route = {
+            "modelStack": snapshot.stacks.default_stack,
+            "atlassianConfigured": True,
+            "jiraProfile": "work",
+            "githubAccount": "alupao",
+        }
+
+        with (
+            mock.patch.object(
+                orichum_cli,
+                "resolve_control_plane_context",
+                return_value={"route": route},
+            ),
+            mock.patch.object(
+                orichum_cli,
+                "ensure_project_config",
+                return_value=(project / ".orichum" / "config.json", True),
+            ) as ensure,
+        ):
+            orichum_cli._ensure_setup_project_config(config, project)
+
+        ensure.assert_called_once_with(
+            project,
+            snapshot.stacks.stacks[snapshot.stacks.default_stack],
+            jira_profile="work",
+            github_account="alupao",
+        )
+
+    def test_setup_project_config_rejects_legacy_inline_jira(self) -> None:
+        from tests.test_configure_state import _snapshot
+
+        snapshot = _snapshot()
+        project = self.root / "project"
+        project.mkdir()
+        config = SimpleNamespace(
+            documents={
+                "model-stacks": serialize_model_stacks(snapshot.stacks),
+                "projects": {},
+            }
+        )
+
+        with (
+            mock.patch.object(
+                orichum_cli,
+                "resolve_control_plane_context",
+                return_value={
+                    "route": {
+                        "modelStack": snapshot.stacks.default_stack,
+                        "atlassianConfigured": True,
+                        "githubAccount": None,
+                    }
+                },
+            ),
+            self.assertRaisesRegex(
+                orichum_cli.CliError,
+                "legacy project context",
+            ),
+        ):
+            orichum_cli._ensure_setup_project_config(config, project)
+
     def test_setup_runs_only_missing_phases_and_verifies_project(self) -> None:
         project = self.root / "project"
         project.mkdir()
@@ -1850,8 +1922,13 @@ class OrichumCliTests(unittest.TestCase):
             ),
             mock.patch.object(
                 orichum_cli,
+                "_ensure_setup_project_config",
+                return_value=(project / ".orichum" / "config.json", True),
+            ) as ensure_config,
+            mock.patch.object(
+                orichum_cli,
                 "_setup_project_ready",
-                side_effect=(False, True),
+                side_effect=(False, True, True),
             ) as ready,
             mock.patch.object(
                 orichum_cli,
@@ -1893,9 +1970,13 @@ class OrichumCliTests(unittest.TestCase):
         recommended.assert_called_once_with(
             paths, refreshed, launch_dir=project
         )
-        self.assertEqual(ready.call_count, 2)
-        self.assertIn("Models\n  ✓ Recommended stack created", stdout.getvalue())
-        self.assertTrue(stdout.getvalue().endswith("Orichum is ready.\n"))
+        ensure_config.assert_called_once_with(refreshed, project)
+        self.assertEqual(ready.call_count, 3)
+        output = stdout.getvalue()
+        self.assertIn("Models\n  ✓ Recommended stack created", output)
+        self.assertIn("  File: ", output)
+        self.assertIn("  ✓ Project configuration created", output)
+        self.assertTrue(output.endswith("Orichum is ready.\n"))
 
     def test_setup_reuses_completed_account_runtime_context_and_stack(
         self,
@@ -1938,6 +2019,11 @@ class OrichumCliTests(unittest.TestCase):
             ),
             mock.patch.object(
                 orichum_cli, "_setup_project_ready", return_value=True
+            ),
+            mock.patch.object(
+                orichum_cli,
+                "_ensure_setup_project_config",
+                return_value=(project / ".orichum" / "config.json", False),
             ),
             mock.patch.object(
                 orichum_cli, "run_stack_wizard", return_value=0
@@ -2003,7 +2089,12 @@ class OrichumCliTests(unittest.TestCase):
             mock.patch.object(
                 orichum_cli,
                 "_setup_project_ready",
-                side_effect=(False, True),
+                side_effect=(False, True, True),
+            ),
+            mock.patch.object(
+                orichum_cli,
+                "_ensure_setup_project_config",
+                return_value=(project / ".orichum" / "config.json", True),
             ),
             mock.patch.object(
                 orichum_cli,

@@ -55,7 +55,8 @@ orichum setup
 That resumable setup asks for the provider, account name, and projects folder
 (default `~/projects`). It registers the first account as Primary in Orichum's
 internal `shared` group, creates a compatible recommended model stack, maps the
-projects folder, reconciles services, and runs the final health check. Orichum
+projects folder, creates `.orichum/config.json` there for direct project
+configuration, reconciles services, and runs the final health check. Orichum
 installs its runtime and private user-managed state under `~/.orichum`. A
 repository may intentionally commit one `.orichum/config.json` containing only
 its model choices and Jira/GitHub account names; credentials remain outside the

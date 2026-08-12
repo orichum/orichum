@@ -268,6 +268,119 @@ def _ephemeral_stacks(
     )
 
 
+def ensure_project_config(
+    project_root: Path,
+    stack: StackDefinition,
+    *,
+    jira_profile: str | None = None,
+    github_account: str | None = None,
+) -> tuple[Path, bool]:
+    """Create a repository-local configuration without replacing one."""
+    try:
+        root = Path(project_root).resolve(strict=True)
+    except OSError as error:
+        raise ProjectModelsError("project root is unavailable") from error
+    if not root.is_dir():
+        raise ProjectModelsError("project root must be a directory")
+
+    directory = root / _PROJECT_DIRECTORY
+    try:
+        directory.mkdir(mode=0o755)
+    except FileExistsError:
+        pass
+    except OSError as error:
+        raise ProjectModelsError(
+            "project configuration directory could not be created"
+        ) from error
+    try:
+        observed_directory = os.lstat(directory)
+    except OSError as error:
+        raise ProjectModelsError(
+            "project configuration directory is unavailable"
+        ) from error
+    if stat.S_ISLNK(observed_directory.st_mode) or not stat.S_ISDIR(
+        observed_directory.st_mode
+    ):
+        raise ProjectModelsError(
+            "project configuration directory must be a real directory"
+        )
+
+    configured = _read_candidate(directory, _PROJECT_FILE)
+    if configured is not None:
+        return configured[0], False
+    legacy = _read_candidate(directory, _LEGACY_PROJECT_FILE)
+    if legacy is not None:
+        return legacy[0], False
+
+    document = {
+        "schemaVersion": 1,
+        "controller": stack.controller[0].model,
+        "agents": {
+            role: stack.agents[role][0].model
+            for role in ROLES
+        },
+        "jiraProfile": jira_profile,
+        "githubAccount": github_account,
+    }
+    content = (json.dumps(document, indent=2) + "\n").encode("utf-8")
+    directory_flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+    directory_flags |= getattr(os, "O_DIRECTORY", 0)
+    directory_flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        directory_fd = os.open(directory, directory_flags)
+    except OSError as error:
+        raise ProjectModelsError(
+            "project configuration directory is unsafe"
+        ) from error
+    path = directory / _PROJECT_FILE
+    file_fd: int | None = None
+    try:
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        try:
+            file_fd = os.open(_PROJECT_FILE, flags, 0o644, dir_fd=directory_fd)
+        except FileExistsError:
+            return path, False
+        written = 0
+        while written < len(content):
+            written += os.write(file_fd, content[written:])
+        os.fsync(file_fd)
+        os.close(file_fd)
+        file_fd = None
+        try:
+            os.stat(
+                _LEGACY_PROJECT_FILE,
+                dir_fd=directory_fd,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            pass
+        else:
+            os.unlink(_PROJECT_FILE, dir_fd=directory_fd)
+            raise ProjectModelsError(
+                f"project configuration {path}: legacy models.json appeared "
+                "while the file was being created"
+            )
+        os.fsync(directory_fd)
+    except OSError as error:
+        if file_fd is not None:
+            os.close(file_fd)
+            file_fd = None
+        try:
+            os.unlink(_PROJECT_FILE, dir_fd=directory_fd)
+        except FileNotFoundError:
+            pass
+        raise ProjectModelsError(
+            f"project configuration {path}: file could not be written"
+        ) from error
+    finally:
+        if file_fd is not None:
+            os.close(file_fd)
+        os.close(directory_fd)
+    return path, True
+
+
 def discover_project_models(
     launch_dir: Path,
     context_root: Path,

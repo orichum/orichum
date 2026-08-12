@@ -4,6 +4,12 @@ All notable Orichum changes are recorded here.
 
 ## Unreleased
 
+### Added
+
+- `orichum configure` now guides creation, selection, and disabling of private
+  named Jira profiles for projects using `.orichum/config.json`; API tokens use
+  hidden input and remain outside the repository.
+
 ### Changed
 
 - Normal installer output now shows the current operation throughout long

@@ -22,8 +22,14 @@ from .configure_state import (
     selections_for_stack,
     stack_is_live_compatible,
 )
+from .jira_profiles import (
+    AtlassianConfig,
+    load_jira_profiles,
+    save_jira_profile,
+)
 from .model_routing import RoutingError
 from .orichum_config import ResolvedConfig
+from .project_models import update_project_jira
 from .terminal_ui import BACK, Choice, TerminalUI, WizardIO
 
 SnapshotLoader = Callable[
@@ -43,6 +49,8 @@ class ConfigureServices:
     ]
     reconcile: Callable[[bool], int]
     verify_project: Callable[[Path], None]
+    save_jira_profile: Callable[[Path, str, AtlassianConfig], None]
+    update_project_jira: Callable[[Path, str | None], None]
 
 
 def _default_services(
@@ -102,6 +110,8 @@ def _default_services(
         ),
         reconcile=reconcile,
         verify_project=verify,
+        save_jira_profile=save_jira_profile,
+        update_project_jira=update_project_jira,
     )
 
 
@@ -164,22 +174,98 @@ def _project_configuration_rows(
     return tuple(rows)
 
 
-def _show_advanced(io: WizardIO, snapshot: ConfigurationSnapshot) -> None:
+def _configure_jira(
+    io: WizardIO,
+    paths: Mapping[str, Path],
+    snapshot: ConfigurationSnapshot,
+    services: ConfigureServices,
+) -> ConfigurationSnapshot:
+    if snapshot.project_models_path is None or not snapshot.project_services_managed:
+        io.section(
+            "Jira",
+            (("Command", "orichum context jira --help"),),
+        )
+        return snapshot
+    registry = Path(paths["config"]) / "jira-profiles.json"
+    profiles = load_jira_profiles(registry)
+    options = [
+        Choice(
+            name,
+            detail=profile.url,
+            marker="current" if name == snapshot.jira_profile else "",
+        )
+        for name, profile in sorted(profiles.items())
+    ]
+    options.extend(
+        (Choice("Add a Jira profile"), Choice("Disable Jira"), Choice("Back"))
+    )
+    selected = io.choose(
+        "Jira",
+        tuple(options),
+        searchable=len(options) > 6,
+    )
+    if selected in {BACK, len(options) - 1}:
+        return snapshot
+    adding = selected == len(profiles)
+    if selected < len(profiles):
+        profile_name = tuple(sorted(profiles))[selected]
+    elif selected == len(profiles) + 1:
+        profile_name = None
+    else:
+        profile_name = io.text("Profile name", "work")
+        existing = profiles.get(profile_name)
+        url = io.text("Jira URL", existing.url if existing else "")
+        username = io.text(
+            "Jira username",
+            existing.username if existing else "",
+        )
+        token = io.secret(
+            "Jira API token",
+            existing.api_token if existing else "",
+        )
+    if adding:
+        services.save_jira_profile(
+            registry,
+            profile_name,
+            AtlassianConfig(url=url, username=username, api_token=token),
+        )
+    services.update_project_jira(snapshot.project_models_path, profile_name)
+    io.show("Jira configuration saved. New sessions will use this profile.")
+    return replace(snapshot, jira_profile=profile_name)
+
+
+def _advanced_menu(
+    io: WizardIO,
+    paths: Mapping[str, Path],
+    snapshot: ConfigurationSnapshot,
+    services: ConfigureServices,
+) -> ConfigurationSnapshot:
     if snapshot.project_models_path is not None:
         io.section(
             "Project configuration",
             _project_configuration_rows(snapshot),
         )
-    io.section(
-        "Advanced commands",
+    selected = io.choose(
+        "Advanced settings",
         (
-            ("Manage accounts", "orichum provider account --help"),
-            ("Provider routes", "orichum provider --help"),
-            ("Custom model stacks", "orichum stack --help"),
-            ("Project and GitHub", "orichum context update --help"),
-            ("Jira", "orichum context jira --help"),
+            Choice("Jira", detail=snapshot.jira_profile or "Disabled"),
+            Choice("GitHub", detail=snapshot.github_account or "Disabled"),
+            Choice("Manage accounts"),
+            Choice("Custom model stacks"),
+            Choice("Back"),
         ),
     )
+    if selected in {BACK, 4}:
+        return snapshot
+    if selected == 0:
+        return _configure_jira(io, paths, snapshot, services)
+    commands = (
+        ("GitHub", "orichum context update --help"),
+        ("Manage accounts", "orichum provider account --help"),
+        ("Custom model stacks", "orichum stack --help"),
+    )
+    io.section(commands[selected - 1][0], (("Command", commands[selected - 1][1]),))
+    return snapshot
 
 
 def _pick_model(
@@ -664,4 +750,4 @@ def run_configure(
             if completed:
                 return 0
         elif selected == 3:
-            _show_advanced(ui, snapshot)
+            snapshot = _advanced_menu(ui, paths, snapshot, operations)

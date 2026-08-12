@@ -5,14 +5,15 @@ import json
 import os
 import tempfile
 import unittest
-from unittest import mock
 from pathlib import Path
+from unittest import mock
 
 from integrations.common.project_models import (
     ProjectModelsError,
     discover_project_models,
     ensure_project_config,
     resolve_project_context,
+    update_project_jira,
 )
 from integrations.common.stack_definition import normalize_model_stacks
 
@@ -178,6 +179,24 @@ class ProjectModelsTests(unittest.TestCase):
             json.loads(path.read_text(encoding="utf-8"))["controller"],
             "claude-quality",
         )
+
+    def test_update_project_jira_preserves_models(self) -> None:
+        path, _created = ensure_project_config(
+            self.root,
+            self.stacks.stacks["default"],
+            github_account="alupao",
+        )
+
+        update_project_jira(path, "work")
+
+        document = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(document["controller"], "gpt-fast")
+        self.assertEqual(
+            document["agents"],
+            {role: "gpt-fast" for role in _ROLES},
+        )
+        self.assertEqual(document["jiraProfile"], "work")
+        self.assertEqual(document["githubAccount"], "alupao")
 
     def test_setup_configuration_preserves_legacy_file(self) -> None:
         legacy = _write(self.root, _legacy_document(), "models.json")

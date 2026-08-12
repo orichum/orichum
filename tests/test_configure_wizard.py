@@ -62,6 +62,9 @@ class ScriptedUI:
             return self.text_values.pop(0)
         return initial
 
+    def secret(self, prompt: str, initial: str = "") -> str:
+        return self.text(prompt, initial)
+
     def show(self, text: str) -> None:
         self.shown.append(text)
 
@@ -83,6 +86,8 @@ class ConfigureWizardTests(unittest.TestCase):
             apply_draft=lambda snapshot, draft: None,
             reconcile=lambda verbose: 0,
             verify_project=lambda project: None,
+            save_jira_profile=lambda path, name, profile: None,
+            update_project_jira=lambda path, jira: None,
         )
 
     def test_top_level_menu_shows_four_clear_tasks_and_exit(self) -> None:
@@ -136,7 +141,7 @@ class ConfigureWizardTests(unittest.TestCase):
             load_snapshot=lambda paths, config, project: snapshot,
             refresh_snapshot=lambda paths, config, project: snapshot,
         )
-        io = ScriptedUI(["Models", "Advanced settings", "Exit"])
+        io = ScriptedUI(["Models", "Advanced settings", "Back", "Exit"])
 
         status = run_configure(
             {},
@@ -162,6 +167,97 @@ class ConfigureWizardTests(unittest.TestCase):
         self.assertFalse(
             any("Recommended setup" in labels for labels in io.choice_labels)
         )
+
+    def test_advanced_jira_creates_profile_and_selects_it(self) -> None:
+        source = Path("/work/acme/.orichum/config.json")
+        snapshot = replace(
+            _snapshot(),
+            project_models_path=source,
+            project_models_digest="a" * 64,
+            project_models_checked=True,
+            project_services_managed=True,
+            jira_profile=None,
+            github_account="alupao",
+        )
+        saved = []
+        selected = []
+        services = replace(
+            self.services(),
+            load_snapshot=lambda paths, config, project: snapshot,
+            refresh_snapshot=lambda paths, config, project: snapshot,
+            save_jira_profile=lambda path, name, profile: saved.append(
+                (path, name, profile)
+            ),
+            update_project_jira=lambda path, jira: selected.append((path, jira)),
+        )
+        io = ScriptedUI(
+            ["Advanced settings", "Jira", "Add a Jira profile", "Exit"],
+            text_values=(
+                "complion",
+                "https://complion.atlassian.net",
+                "person@example.com",
+                "secret-token",
+            ),
+        )
+
+        status = run_configure(
+            {"config": Path("/private/config")},
+            object(),
+            Path("/work/acme"),
+            io=io,
+            services=services,
+        )
+
+        self.assertEqual(status, 0)
+        self.assertEqual(saved[0][0], Path("/private/config/jira-profiles.json"))
+        self.assertEqual(saved[0][1], "complion")
+        self.assertEqual(saved[0][2].url, "https://complion.atlassian.net")
+        self.assertEqual(saved[0][2].username, "person@example.com")
+        self.assertEqual(saved[0][2].api_token, "secret-token")
+        self.assertEqual(selected, [(source, "complion")])
+        self.assertIn(
+            "Jira configuration saved. New sessions will use this profile.",
+            io.shown,
+        )
+        self.assertNotIn("secret-token", repr(io.sections))
+
+    def test_advanced_jira_does_not_select_profile_when_save_fails(self) -> None:
+        source = Path("/work/acme/.orichum/config.json")
+        snapshot = replace(
+            _snapshot(),
+            project_models_path=source,
+            project_services_managed=True,
+            jira_profile=None,
+        )
+        selected = []
+        services = replace(
+            self.services(),
+            load_snapshot=lambda paths, config, project: snapshot,
+            save_jira_profile=lambda path, name, profile: (_ for _ in ()).throw(
+                RoutingError("profile save failed")
+            ),
+            update_project_jira=lambda path, jira: selected.append((path, jira)),
+        )
+        io = ScriptedUI(
+            ["Advanced settings", "Jira", "Add a Jira profile"],
+            text_values=(
+                "complion",
+                "https://complion.atlassian.net",
+                "person@example.com",
+                "secret-token",
+            ),
+        )
+
+        with self.assertRaisesRegex(RoutingError, "profile save failed"):
+            run_configure(
+                {"config": Path("/private/config")},
+                object(),
+                Path("/work/acme"),
+                io=io,
+                services=services,
+            )
+
+        self.assertEqual(selected, [])
 
     def test_review_lists_every_concrete_role_and_session_effect(self) -> None:
         io = ScriptedUI(
@@ -229,6 +325,8 @@ class ConfigureWizardTests(unittest.TestCase):
             apply_draft=lambda snapshot, draft: applied.append(draft),
             reconcile=lambda verbose: reconciled.append(verbose) or 0,
             verify_project=services.verify_project,
+            save_jira_profile=services.save_jira_profile,
+            update_project_jira=services.update_project_jira,
         )
 
         status = run_configure(
@@ -289,6 +387,8 @@ class ConfigureWizardTests(unittest.TestCase):
             apply_draft=lambda snapshot, draft: applied.append(draft),
             reconcile=lambda verbose: 0,
             verify_project=lambda project: None,
+            save_jira_profile=lambda path, name, profile: None,
+            update_project_jira=lambda path, jira: None,
         )
         io = ScriptedUI(
             [
@@ -336,6 +436,8 @@ class ConfigureWizardTests(unittest.TestCase):
             apply_draft=lambda snapshot, draft: applied.append(draft),
             reconcile=lambda verbose: 0,
             verify_project=lambda project: None,
+            save_jira_profile=lambda path, name, profile: None,
+            update_project_jira=lambda path, jira: None,
         )
         io = ScriptedUI(
             [
@@ -547,6 +649,8 @@ class ConfigureWizardTests(unittest.TestCase):
             apply_draft=lambda current, draft: applied.append(draft),
             reconcile=lambda verbose: 0,
             verify_project=lambda project: None,
+            save_jira_profile=lambda path, name, profile: None,
+            update_project_jira=lambda path, jira: None,
         )
         io = ScriptedUI(
             [
@@ -588,6 +692,8 @@ class ConfigureWizardTests(unittest.TestCase):
             apply_draft=lambda current, draft: applied.append(draft),
             reconcile=lambda verbose: 0,
             verify_project=lambda project: None,
+            save_jira_profile=lambda path, name, profile: None,
+            update_project_jira=lambda path, jira: None,
         )
         io = ScriptedUI(
             [
@@ -640,6 +746,8 @@ class ConfigureWizardTests(unittest.TestCase):
             apply_draft=lambda current, draft: applied.append(draft),
             reconcile=lambda verbose: 0,
             verify_project=lambda project: None,
+            save_jira_profile=lambda path, name, profile: None,
+            update_project_jira=lambda path, jira: None,
         )
         io = ScriptedUI(
             [
@@ -691,6 +799,8 @@ class ConfigureWizardTests(unittest.TestCase):
             apply_draft=lambda current, draft: applied.append(draft),
             reconcile=lambda verbose: 0,
             verify_project=lambda project: None,
+            save_jira_profile=lambda path, name, profile: None,
+            update_project_jira=lambda path, jira: None,
         )
         io = ScriptedUI(
             [

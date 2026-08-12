@@ -210,6 +210,86 @@ class ProjectModelsTests(unittest.TestCase):
         self.assertFalse(created)
         self.assertFalse((self.root / ".orichum" / "config.json").exists())
 
+    def test_setup_configuration_publishes_only_complete_file(self) -> None:
+        stack = self.stacks.stacks["default"]
+        original_link = os.link
+
+        def inspect_before_publish(source, destination, *args, **kwargs):
+            self.assertFalse((self.root / ".orichum" / "config.json").exists())
+            temporary = self.root / ".orichum" / str(source)
+            self.assertEqual(
+                json.loads(temporary.read_text(encoding="utf-8")),
+                {
+                    "schemaVersion": 1,
+                    "controller": "gpt-fast",
+                    "agents": {role: "gpt-fast" for role in _ROLES},
+                    "jiraProfile": None,
+                    "githubAccount": None,
+                },
+            )
+            return original_link(source, destination, *args, **kwargs)
+
+        with mock.patch(
+            "integrations.common.project_models.os.link",
+            side_effect=inspect_before_publish,
+        ):
+            path, created = ensure_project_config(self.root, stack)
+
+        self.assertTrue(created)
+        self.assertTrue(path.is_file())
+        self.assertEqual(tuple(path.parent.glob(".config.json.*")), ())
+
+    def test_setup_configuration_reuses_concurrently_published_file(self) -> None:
+        stack = self.stacks.stacks["default"]
+        winner = _document("claude-quality")
+
+        def publish_winner(*_args, **_kwargs):
+            path = self.root / ".orichum" / "config.json"
+            path.write_text(json.dumps(winner), encoding="utf-8")
+            raise FileExistsError
+
+        with mock.patch(
+            "integrations.common.project_models.os.link",
+            side_effect=publish_winner,
+        ):
+            path, created = ensure_project_config(self.root, stack)
+
+        self.assertFalse(created)
+        self.assertEqual(json.loads(path.read_text(encoding="utf-8")), winner)
+        self.assertEqual(tuple(path.parent.glob(".config.json.*")), ())
+
+    def test_setup_configuration_does_not_unlink_replacement_on_cleanup(self) -> None:
+        stack = self.stacks.stacks["default"]
+        winner = _document("claude-quality")
+        original_stat = os.stat
+
+        def replace_before_legacy_check(path, *args, **kwargs):
+            if path == "models.json" and kwargs.get("dir_fd") is not None:
+                configured = self.root / ".orichum" / "config.json"
+                configured.unlink()
+                configured.write_text(json.dumps(winner), encoding="utf-8")
+                (self.root / ".orichum" / "models.json").write_text(
+                    json.dumps(_legacy_document()),
+                    encoding="utf-8",
+                )
+            return original_stat(path, *args, **kwargs)
+
+        with (
+            mock.patch(
+                "integrations.common.project_models.os.stat",
+                side_effect=replace_before_legacy_check,
+            ),
+            self.assertRaisesRegex(
+                ProjectModelsError,
+                "legacy models.json appeared",
+            ),
+        ):
+            ensure_project_config(self.root, stack)
+
+        path = self.root / ".orichum" / "config.json"
+        self.assertEqual(json.loads(path.read_text(encoding="utf-8")), winner)
+        self.assertEqual(tuple(path.parent.glob(".config.json.*")), ())
+
     def test_setup_configuration_removes_partial_file_if_legacy_appears(self) -> None:
         stack = self.stacks.stacks["default"]
         original_stat = os.stat

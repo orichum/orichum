@@ -7,6 +7,7 @@ import fcntl
 import hashlib
 import json
 import os
+import secrets
 import stat
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -451,21 +452,30 @@ def ensure_project_config(
     except OSError as error:
         raise ProjectModelsError("project configuration directory is unsafe") from error
     path = directory / _PROJECT_FILE
-    file_fd: int | None = None
+    temporary_name = f".{_PROJECT_FILE}.{os.getpid()}.{secrets.token_hex(8)}"
+    temporary_fd: int | None = None
+    linked = False
     try:
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
         flags |= getattr(os, "O_CLOEXEC", 0)
         flags |= getattr(os, "O_NOFOLLOW", 0)
-        try:
-            file_fd = os.open(_PROJECT_FILE, flags, 0o644, dir_fd=directory_fd)
-        except FileExistsError:
-            return path, False
+        temporary_fd = os.open(temporary_name, flags, 0o644, dir_fd=directory_fd)
         written = 0
         while written < len(content):
-            written += os.write(file_fd, content[written:])
-        os.fsync(file_fd)
-        os.close(file_fd)
-        file_fd = None
+            written += os.write(temporary_fd, content[written:])
+        os.fsync(temporary_fd)
+        staged = os.fstat(temporary_fd)
+        try:
+            os.link(
+                temporary_name,
+                _PROJECT_FILE,
+                src_dir_fd=directory_fd,
+                dst_dir_fd=directory_fd,
+                follow_symlinks=False,
+            )
+        except FileExistsError:
+            return path, False
+        linked = True
         try:
             os.stat(
                 _LEGACY_PROJECT_FILE,
@@ -475,26 +485,44 @@ def ensure_project_config(
         except FileNotFoundError:
             pass
         else:
-            os.unlink(_PROJECT_FILE, dir_fd=directory_fd)
+            published = os.stat(
+                _PROJECT_FILE,
+                dir_fd=directory_fd,
+                follow_symlinks=False,
+            )
+            if _same_object(staged, published):
+                os.unlink(_PROJECT_FILE, dir_fd=directory_fd)
+            linked = False
             raise ProjectModelsError(
                 f"project configuration {path}: legacy models.json appeared "
                 "while the file was being created"
             )
         os.fsync(directory_fd)
     except OSError as error:
-        if file_fd is not None:
-            os.close(file_fd)
-            file_fd = None
-        try:
-            os.unlink(_PROJECT_FILE, dir_fd=directory_fd)
-        except FileNotFoundError:
-            pass
+        if temporary_fd is not None:
+            os.close(temporary_fd)
+            temporary_fd = None
+        if linked:
+            try:
+                published = os.stat(
+                    _PROJECT_FILE,
+                    dir_fd=directory_fd,
+                    follow_symlinks=False,
+                )
+                if _same_object(staged, published):
+                    os.unlink(_PROJECT_FILE, dir_fd=directory_fd)
+            except FileNotFoundError:
+                pass
         raise ProjectModelsError(
             f"project configuration {path}: file could not be written"
         ) from error
     finally:
-        if file_fd is not None:
-            os.close(file_fd)
+        if temporary_fd is not None:
+            os.close(temporary_fd)
+        try:
+            os.unlink(temporary_name, dir_fd=directory_fd)
+        except FileNotFoundError:
+            pass
         os.close(directory_fd)
     return path, True
 

@@ -2663,7 +2663,6 @@ def _setup(
         project_config_path, project_config_created = (
             _ensure_setup_project_config(config, project)
         )
-        paths, config = _load()
         if not _setup_project_ready(paths, config, project):
             raise CliError(
                 "setup is incomplete: the project configuration is unusable"

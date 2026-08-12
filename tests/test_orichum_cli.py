@@ -2026,6 +2026,11 @@ class OrichumCliTests(unittest.TestCase):
                 return_value=(project / ".orichum" / "config.json", False),
             ),
             mock.patch.object(
+                orichum_cli,
+                "_load",
+                side_effect=AssertionError("completed setup must not reload"),
+            ) as load,
+            mock.patch.object(
                 orichum_cli, "run_stack_wizard", return_value=0
             ) as wizard,
             mock.patch.object(
@@ -2038,6 +2043,7 @@ class OrichumCliTests(unittest.TestCase):
         self.assertEqual(status, 0)
         provider.assert_not_called()
         reconcile.assert_not_called()
+        load.assert_not_called()
         wizard.assert_not_called()
         external.assert_called_once_with(
             "orichum-doctor", [], diagnostics=mock.ANY

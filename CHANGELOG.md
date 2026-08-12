@@ -4,6 +4,8 @@ All notable Orichum changes are recorded here.
 
 ## Unreleased
 
+## 0.1.0-rc.12 - 2026-08-12
+
 ### Added
 
 - `orichum configure` now guides creation, selection, and disabling of private
@@ -15,6 +17,14 @@ All notable Orichum changes are recorded here.
 - Normal installer output now shows the current operation throughout long
   reconciliation paths and reports the failing operation with its concise,
   actionable reason without requiring `--verbose`.
+- `orichum setup` now creates an editable `.orichum/config.json` from the
+  recommended stack without overwriting an existing repository configuration.
+
+### Fixed
+
+- Setup reuses its resolved control-plane configuration after creating the
+  repository-local file and publishes new project configuration atomically, so
+  completed setup and concurrent creators cannot expose partial JSON.
 
 ## 0.1.0-rc.11 - 2026-08-12
 

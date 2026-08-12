@@ -68,9 +68,11 @@ See [Installation, setup, and configuration](setup-and-configuration.md) for
 the complete prompt-by-prompt onboarding flow and every ongoing
 `orichum configure` path.
 
-Normal installer and setup output contains only progress, outcomes, and required
-actions. Use `./install.sh --verbose` or `orichum setup --verbose` to stream the
-technical output that is also retained in private diagnostic logs.
+Normal installer and setup output identifies each current operation, outcomes,
+and required actions. Failures include the operation that stopped and its
+concise reason. Use `./install.sh --verbose` or `orichum setup --verbose` to
+stream the complete technical output that is also retained in private diagnostic
+logs.
 
 ## Fast reconciliation or explicit upgrade
 

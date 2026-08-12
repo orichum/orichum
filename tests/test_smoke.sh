@@ -4,8 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../lib/workflow.sh
 source "$ROOT/lib/workflow.sh"
-[[ "$(<"$ROOT/VERSION")" == 0.1.0-rc.12 ]]
-rg -Fq '## 0.1.0-rc.12 - 2026-08-12' "$ROOT/CHANGELOG.md"
+[[ "$(<"$ROOT/VERSION")" == 0.1.0-rc.13 ]]
+rg -Fq '## 0.1.0-rc.13 - 2026-08-13' "$ROOT/CHANGELOG.md"
 rg -Fq 'orichum --version' "$ROOT/docs/cli-reference.md"
 rg -Fq '[Changelog](CHANGELOG.md)' "$ROOT/README.md"
 rg -Fq 'orichum sessions cleanup' \
@@ -43,10 +43,17 @@ render_claudex_config \
   /usr/bin/true 8317 13456 13457
 rg -Fxq 'base_url = "http://127.0.0.1:13457"' "$fixture/claudex.toml"
 
-for script in "$ROOT"/bin/orichum* "$ROOT/install.sh" "$ROOT/doctor.sh"; do
+for script in "$ROOT"/bin/orichum* "$ROOT"/bootstrap.sh "$ROOT"/install.sh "$ROOT"/doctor.sh; do
   [[ -x "$script" ]]
   bash -n "$script"
 done
+rg -Fq 'https://raw.githubusercontent.com/orichum/orichum/main/bootstrap.sh | bash' \
+  "$ROOT/README.md" \
+  "$ROOT/docs/installation.md" \
+  "$ROOT/docs/setup-and-configuration.md"
+rg -Fq 'https://claude.ai/install.sh' "$ROOT/bootstrap.sh"
+rg -Fq 'https://chatgpt.com/codex/install.sh' "$ROOT/bootstrap.sh"
+rg -Fq 'https://astral.sh/uv/install.sh' "$ROOT/bootstrap.sh"
 for status_health_contract in \
     'Orichum status line is installed and isolated' \
     'route telemetry endpoint is private and redacted'; do
@@ -55,6 +62,8 @@ done
 rg -Fq \
   'Usage: ./install.sh [--verbose] [--upgrade | --uninstall [--purge]]' \
   "$ROOT/install.sh"
+rg -Fq 'https://github.com/orichum/orichum.git' \
+  "$ROOT/README.md" "$ROOT/docs/installation.md"
 
 install -d \
   "$fixture/fake-bin" \

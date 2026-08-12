@@ -65,3 +65,4 @@ jobs:
             tests/test_orichum_completion.py
           python3 -m unittest discover -s tests -p 'test_*.py'
           bash tests/test_smoke.sh
+          bash tests/test_bootstrap.sh

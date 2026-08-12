@@ -12,14 +12,30 @@ The installer also recognizes macOS x86-64 and Linux arm64. Those paths use
 the same guarded installer logic but have not completed native release
 acceptance, so they are best-effort rather than release-gated targets.
 
-Required commands are `bash`, `curl`, `gh`, `git`, `jq`, `python3` 3.10 or
-newer, `rg`, `tar`, `uv`, and Claude Code. Linux and WSL also require `ss`,
-normally supplied by `iproute2`.
+The direct installer requires `bash`, `curl`, `gh`, `git`, `jq`, `python3`
+3.10 or newer, `rg`, `tar`, `uv`, and Claude Code. Linux and WSL also require
+`ss`, normally supplied by `iproute2`.
 
-The host Python only bootstraps installation. Orichum commands and services use
-an isolated, uv-managed CPython 3.14.x.
+For a new installation, copy and run:
 
-## Install
+```bash
+curl -fsSL https://raw.githubusercontent.com/orichum/orichum/main/bootstrap.sh | bash
+```
+
+The bootstrap clones Orichum to `~/.local/share/orichum`, installs missing
+prerequisites including Claude Code, Codex CLI, uv, and jq, then runs
+`install.sh`. Automatic host-package installation supports Ubuntu and macOS
+with Homebrew. It does not enable systemd for WSL; enable it and restart WSL
+before installing. To inspect the bootstrap before running it:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/orichum/orichum/main/bootstrap.sh
+less bootstrap.sh
+bash bootstrap.sh
+```
+
+To install manually on a supported host with the required commands already
+available:
 
 ```bash
 git clone https://github.com/orichum/orichum.git

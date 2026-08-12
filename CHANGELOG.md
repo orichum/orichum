@@ -4,6 +4,12 @@ All notable Orichum changes are recorded here.
 
 ## Unreleased
 
+## 0.1.0-rc.14 - 2026-08-13
+
+### Fixed
+
+- Bootstrap-installed users now receive valid README reconciliation, upgrade,
+  uninstall, and purge commands instead of relative checkout paths.
 ## 0.1.0-rc.13 - 2026-08-13
 
 ### Added

@@ -64,10 +64,9 @@ installs its runtime and private user-managed state under `~/.orichum`. A
 repository may intentionally commit one `.orichum/config.json` containing only
 its model choices and Jira/GitHub account names; credentials remain outside the
 repository. Moving the checkout does not break the installed command.
-Later `./install.sh` runs quickly when everything is already verified and
-healthy. Use `./install.sh --upgrade` when you want Orichum to refresh managed
-tools within its release constraints and run their complete probes; the full
-doctor check follows once a provider route is available. See
+Later, rerun the same bootstrap command to update Orichum and reconcile the
+installation. Add `--upgrade` to refresh managed tools and run their complete
+probes; the full doctor check follows once a provider route is available. See
 [Installation and upgrades](docs/installation.md) for details, locations, port
 handling, and uninstall options.
 
@@ -79,11 +78,11 @@ To remove the Orichum runtime while keeping accounts, sessions, project
 configuration, and LeanCTX project knowledge for a later reinstall:
 
 ```bash
-./install.sh --uninstall
+~/.local/share/orichum/install.sh --uninstall
 ```
 
-Use `./install.sh --uninstall --purge` only when you also want to permanently
-remove Orichum's saved configuration and data.
+Use `~/.local/share/orichum/install.sh --uninstall --purge` only when you also
+want to permanently remove Orichum's saved configuration and data.
 
 ## Your first Orichum session
 
@@ -179,7 +178,7 @@ contains Jira tokens, GitHub tokens, provider credentials, or routing policy.
 | Monitor context savings | `orichum leanctx stats`, `orichum leanctx watch`, or `orichum leanctx dashboard` |
 | Check the installation | `orichum doctor` |
 | Show the active home, config, cache, and state paths | `orichum config paths` |
-| Upgrade Orichum | Run `./install.sh --upgrade` from the Orichum checkout |
+| Update or reconcile Orichum | Rerun the [bootstrap command](#install); add `--upgrade` for a complete managed-tool refresh |
 
 The complete command map is in the [CLI reference](docs/cli-reference.md).
 

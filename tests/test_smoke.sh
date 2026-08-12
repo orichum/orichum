@@ -4,8 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../lib/workflow.sh
 source "$ROOT/lib/workflow.sh"
-[[ "$(<"$ROOT/VERSION")" == 0.1.0-rc.13 ]]
-rg -Fq '## 0.1.0-rc.13 - 2026-08-13' "$ROOT/CHANGELOG.md"
+[[ "$(<"$ROOT/VERSION")" == 0.1.0-rc.14 ]]
+rg -Fq '## 0.1.0-rc.14 - 2026-08-13' "$ROOT/CHANGELOG.md"
 rg -Fq 'orichum --version' "$ROOT/docs/cli-reference.md"
 rg -Fq '[Changelog](CHANGELOG.md)' "$ROOT/README.md"
 rg -Fq 'orichum sessions cleanup' \
@@ -723,11 +723,16 @@ case "$macos_secret_scan_rc" in
 esac
 
 for installer_document in \
-    "$ROOT/README.md" \
     "$ROOT/docs/installation.md" \
     "$ROOT/docs/cli-reference.md"; do
   rg -Fq './install.sh --upgrade' "$installer_document"
 done
+if rg -Fq './install.sh' "$ROOT/README.md"; then
+  printf 'README still directs bootstrap users to a relative installer path\n' >&2
+  exit 1
+fi
+rg -Fq '~/.local/share/orichum/install.sh --uninstall' "$ROOT/README.md"
+rg -Fq 'Rerun the [bootstrap command](#install)' "$ROOT/README.md"
 for installation_contract in \
     'Fast reconciliation' \
     'about 10 seconds' \

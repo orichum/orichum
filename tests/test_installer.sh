@@ -268,8 +268,22 @@ second_diagnostic_log="$(create_install_diagnostic_log "$diagnostic_root")"
 [[ "$(print_install_progress false 'Installing Orichum…')" == \
   'Installing Orichum…' ]]
 [[ -z "$(print_install_progress true 'Installing Orichum…')" ]]
-[[ "$(print_install_failure /private/install.log)" == \
-  $'\nInstallation stopped.\n\nRun:\n  ./install.sh\n\nDiagnostics:\n  /private/install.log\n\nDetails:\n  ./install.sh --verbose' ]]
+stage_output="$fixture/install-stage.out"
+print_install_stage '  Checking existing installation…' >"$stage_output"
+[[ "$(<"$stage_output")" == '  Checking existing installation…' ]]
+[[ "$INSTALL_STAGE" == '  Checking existing installation…' ]]
+[[ "$(print_install_failure \
+  /private/install.log \
+  '  Configuring services…' \
+  'route proxy activation port remained occupied')" == \
+  $'\nInstallation stopped during:   Configuring services…\nReason: route proxy activation port remained occupied\n\nRetry:\n  ./install.sh\n\nDiagnostics:\n  /private/install.log\n\nTechnical details:\n  ./install.sh --verbose' ]]
+failure_log="$fixture/installer-failure.log"
+printf '%s\n' \
+  'technical command output' \
+  'ERROR: first failure' \
+  'ERROR: final actionable failure' >"$failure_log"
+[[ "$(install_failure_reason_from_log "$failure_log")" == \
+  'final actionable failure' ]]
 install_results="$(
   print_install_component_results \
     reused upgraded repaired reused upgraded reused upgraded zsh

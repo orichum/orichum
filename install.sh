@@ -18,12 +18,20 @@ install_arguments="$(parse_install_arguments "$@")" || {
 IFS=$'\t' read -r INSTALL_MODE INSTALL_VERBOSE <<<"$install_arguments"
 INSTALL_OUTPUT_ACTIVE=false
 INSTALL_LOG_PATH=
+INSTALL_STAGE='Preparing installation…'
 ORICHUM_COMPLETION_OPTIONAL_SHELL=
 
 install_cleanup() {
   local status="${1:-0}"
   if [[ "$INSTALL_OUTPUT_ACTIVE" == true && "$status" -ne 0 ]]; then
-    print_install_failure "$INSTALL_LOG_PATH" >&4
+    local failure_reason
+    failure_reason="$(
+      install_failure_reason_from_log "$INSTALL_LOG_PATH" 2>/dev/null || true
+    )"
+    print_install_failure \
+      "$INSTALL_LOG_PATH" \
+      "${INSTALL_STAGE:-Preparing installation…}" \
+      "${failure_reason:-Installer exited unexpectedly; see diagnostics.}" >&4
   fi
   workflow_cleanup "$status"
 }
@@ -418,9 +426,8 @@ else
   exec >>"$INSTALL_LOG_PATH" 2>&1
 fi
 INSTALL_OUTPUT_ACTIVE=true
-print_install_progress "$INSTALL_VERBOSE" 'Installing Orichum…' >&3
-print_install_progress \
-  "$INSTALL_VERBOSE" '  Checking existing installation…' >&3
+print_install_stage 'Installing Orichum…' >&3
+print_install_stage '  Checking existing installation…' >&3
 SERVICE_LABEL="io.orichum.cliproxy"
 runtime_transaction_active=false
 runtime_release=
@@ -561,6 +568,7 @@ if [[ "$control_plane_recovery_needed" == true ]]; then
       "unfinished Orichum control-plane activation could not be recovered"
 fi
 
+print_install_stage '  Preparing Orichum runtime…' >&3
 staged_runtime_release="$(
   stage_orichum_runtime "$SOURCE_ROOT" "$installer_temp/runtime-stage"
 )" || workflow_die "standalone Orichum runtime could not be staged"
@@ -968,8 +976,7 @@ if attempt_verified_fast_install; then
   exit 0
 fi
 
-print_install_progress \
-  "$INSTALL_VERBOSE" '  Installing or updating components…' >&3
+print_install_stage '  Installing or updating components…' >&3
 
 if [[ "$controller_plugin_decision" != reused ]]; then
   validation_config="$(mktemp -d "${TMPDIR:-/tmp}/orichum-plugin.XXXXXX")"
@@ -1324,6 +1331,7 @@ if [[ "$INSTALL_MODE" == upgrade && \
   fi
 fi
 
+print_install_stage '  Downloading and validating components…' >&3
 cliproxy_state="$(stage_github_binary \
   router-for-me/CLIProxyAPI 'CLIProxyAPI_' "_${cliproxy_os}_${cliproxy_arch}.tar.gz" \
   cli-proxy-api "$WORKFLOW_DATA_ROOT/bin/cli-proxy-api" \
@@ -2585,8 +2593,7 @@ require_activation_port_available() {
     "$service_name activation port $port remained occupied; prior state will be restored"
 }
 
-print_install_progress \
-  "$INSTALL_VERBOSE" '  Configuring services…' >&3
+print_install_stage '  Configuring services…' >&3
 write_service_ports "$WORKFLOW_DATA_ROOT" \
   "$CLIPROXY_PORT" "$CLAUDEX_PROXY_PORT" "$ROUTE_PROXY_LISTEN_PORT" \
   "$LEANCTX_PROXY_PORT" || \
@@ -2713,6 +2720,7 @@ routing_action="$routing_decision"
 discovery_entrypoint=discover_models_main_core
 model_discovery_status=0
 if [[ "$routing_decision" != reused ]]; then
+  print_install_stage '  Discovering available models…' >&3
   model_discovery_performed=true
   CLAUDEX_DEFER_MODEL_PRUNE=1 \
     ORICHUM_SUPPRESS_SETUP_INSTRUCTION=1 \
@@ -2872,8 +2880,7 @@ activate_installed_control_plane \
 ORICHUM_CONFIG_ROOT="$INSTALLED_CONFIG_ROOT"
 ORICHUM_CONFIG_HOME="$ORICHUM_CONFIG_ROOT"
 export ORICHUM_CONFIG_HOME
-print_install_progress \
-  "$INSTALL_VERBOSE" '  Verifying installation…' >&3
+print_install_stage '  Verifying installation…' >&3
 verify_committed_control_plane \
   "$ORICHUM_CONFIG_ROOT" "$WORKFLOW_DATA_ROOT" || \
   workflow_die "committed Orichum control plane is invalid"

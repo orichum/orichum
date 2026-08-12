@@ -8,8 +8,10 @@ import unittest
 from pathlib import Path
 
 from integrations.common.jira_profiles import (
+    AtlassianConfig,
     AtlassianError,
     load_jira_profiles,
+    save_jira_profile,
 )
 
 
@@ -73,6 +75,32 @@ class JiraProfilesTests(unittest.TestCase):
         self.write(json.dumps(document))
         with self.assertRaisesRegex(AtlassianError, "profile name is invalid"):
             load_jira_profiles(self.path)
+
+    def test_save_creates_private_registry_and_preserves_profiles(self) -> None:
+        save_jira_profile(
+            self.path,
+            "work",
+            AtlassianConfig(
+                url="https://work.atlassian.net",
+                username="person@example.com",
+                api_token="first-token",
+            ),
+        )
+        save_jira_profile(
+            self.path,
+            "complion",
+            AtlassianConfig(
+                url="https://complion.atlassian.net",
+                username="admin@example.com",
+                api_token="second-token",
+            ),
+        )
+
+        self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
+        profiles = load_jira_profiles(self.path)
+        self.assertEqual(tuple(profiles), ("complion", "work"))
+        self.assertEqual(profiles["work"].api_token, "first-token")
+        self.assertEqual(profiles["complion"].api_token, "second-token")
 
 
 if __name__ == "__main__":

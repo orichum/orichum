@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
@@ -268,6 +269,128 @@ def _ephemeral_stacks(
     )
 
 
+def update_project_jira(path: Path, jira_profile: str | None) -> None:
+    path = Path(path)
+    if jira_profile is not None:
+        jira_profile = validate_jira_profile(jira_profile)
+    directory_flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+    directory_flags |= getattr(os, "O_DIRECTORY", 0)
+    directory_flags |= getattr(os, "O_NOFOLLOW", 0)
+    directory_fd = -1
+    file_fd = -1
+    descriptor = -1
+    lock_fd = -1
+    temporary = f".{path.name}.{os.getpid()}.tmp"
+    try:
+        directory_fd = os.open(path.parent, directory_flags)
+        lock_flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0)
+        lock_flags |= getattr(os, "O_NOFOLLOW", 0)
+        lock_fd = os.open(
+            f".{path.name}.lock",
+            lock_flags,
+            0o600,
+            dir_fd=directory_fd,
+        )
+        lock_details = os.fstat(lock_fd)
+        if (
+            not stat.S_ISREG(lock_details.st_mode)
+            or lock_details.st_uid != os.getuid()
+            or stat.S_IMODE(lock_details.st_mode) != 0o600
+        ):
+            raise _error(path, "configuration lock is unsafe")
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        observed = os.stat(path.name, dir_fd=directory_fd, follow_symlinks=False)
+        if (
+            stat.S_ISLNK(observed.st_mode)
+            or not stat.S_ISREG(observed.st_mode)
+            or observed.st_size < 1
+            or observed.st_size > _MAX_PROJECT_CONFIG_BYTES
+        ):
+            raise _error(path, "file must be a regular file no larger than 16 KiB")
+        file_flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+        file_flags |= getattr(os, "O_NOFOLLOW", 0)
+        file_fd = os.open(path.name, file_flags, dir_fd=directory_fd)
+        opened = os.fstat(file_fd)
+        if not _same_state(observed, opened):
+            raise _error(path, "file changed while opening")
+        content = bytearray()
+        while len(content) <= _MAX_PROJECT_CONFIG_BYTES:
+            chunk = os.read(file_fd, _MAX_PROJECT_CONFIG_BYTES + 1 - len(content))
+            if not chunk:
+                break
+            content.extend(chunk)
+        after_read = os.fstat(file_fd)
+        if len(content) > _MAX_PROJECT_CONFIG_BYTES or not _same_state(
+            opened, after_read
+        ):
+            raise _error(path, "file changed while reading or exceeds 16 KiB")
+        try:
+            document = json.loads(
+                bytes(content).decode("utf-8"),
+                object_pairs_hook=_unique_object,
+                parse_constant=_reject_constant,
+            )
+        except (UnicodeError, ValueError, json.JSONDecodeError) as error:
+            raise _error(path, "invalid JSON") from error
+        if not isinstance(document, dict) or set(document) != {
+            "schemaVersion",
+            "controller",
+            "agents",
+            "jiraProfile",
+            "githubAccount",
+        }:
+            raise _error(path, "file does not manage project services")
+        document["jiraProfile"] = jira_profile
+        payload = (json.dumps(document, indent=2) + "\n").encode("utf-8")
+        if len(payload) > _MAX_PROJECT_CONFIG_BYTES:
+            raise _error(path, "file would exceed 16 KiB")
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(
+            temporary,
+            flags,
+            stat.S_IMODE(observed.st_mode),
+            dir_fd=directory_fd,
+        )
+        offset = 0
+        while offset < len(payload):
+            written = os.write(descriptor, payload[offset:])
+            if written <= 0:
+                raise OSError("project configuration write made no progress")
+            offset += written
+        os.fsync(descriptor)
+        current = os.stat(path.name, dir_fd=directory_fd, follow_symlinks=False)
+        if not _same_state(after_read, current):
+            raise _error(path, "file changed while updating")
+        os.close(descriptor)
+        descriptor = -1
+        os.replace(
+            temporary,
+            path.name,
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+        )
+        os.fsync(directory_fd)
+    except ProjectModelsError:
+        raise
+    except OSError as error:
+        raise _error(path, "file could not be updated") from error
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if file_fd >= 0:
+            os.close(file_fd)
+        if lock_fd >= 0:
+            os.close(lock_fd)
+        if directory_fd >= 0:
+            try:
+                os.unlink(temporary, dir_fd=directory_fd)
+            except FileNotFoundError:
+                pass
+            os.close(directory_fd)
+
+
 def ensure_project_config(
     project_root: Path,
     stack: StackDefinition,
@@ -315,10 +438,7 @@ def ensure_project_config(
     document = {
         "schemaVersion": 1,
         "controller": stack.controller[0].model,
-        "agents": {
-            role: stack.agents[role][0].model
-            for role in ROLES
-        },
+        "agents": {role: stack.agents[role][0].model for role in ROLES},
         "jiraProfile": jira_profile,
         "githubAccount": github_account,
     }
@@ -329,9 +449,7 @@ def ensure_project_config(
     try:
         directory_fd = os.open(directory, directory_flags)
     except OSError as error:
-        raise ProjectModelsError(
-            "project configuration directory is unsafe"
-        ) from error
+        raise ProjectModelsError("project configuration directory is unsafe") from error
     path = directory / _PROJECT_FILE
     file_fd: int | None = None
     try:

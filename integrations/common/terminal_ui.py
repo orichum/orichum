@@ -40,6 +40,8 @@ class WizardIO(Protocol):
 
     def text(self, prompt: str, initial: str = "") -> str: ...
 
+    def secret(self, prompt: str, initial: str = "") -> str: ...
+
     def show(self, text: str) -> None: ...
 
     def section(
@@ -160,6 +162,13 @@ class TerminalUI:
         suffix = f" [{initial}]" if initial else ""
         answer = self._readline(f"{prompt}{suffix}: ").strip()
         return answer or initial
+
+    def secret(self, prompt: str, initial: str = "") -> str:
+        import getpass
+
+        suffix = " [keep existing]" if initial else ""
+        value = getpass.getpass(f"{prompt}{suffix}: ", stream=self._stdout).strip()
+        return value or initial
 
     def error(self, message: str, recovery: str) -> None:
         self.section("Configuration stopped", (("Reason", message),))

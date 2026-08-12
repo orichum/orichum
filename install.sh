@@ -1270,8 +1270,12 @@ if [[ "$prior_install_state_verified" == true ]]; then
       "$claudex_current_artifact" "$claudex_input_sha" "$claudex_probe_sha"
   )"
   if [[ "$INSTALL_MODE" == fast && \
-        "$claudex_decision" != upgraded ]]; then
+        "$claudex_decision" != upgraded ]] && \
+     github_source_identity_matches_repository \
+       "$claudex_recorded_source" alupao/claudex; then
     claudex_resolve_upstream=false
+  else
+    claudex_decision=upgraded
   fi
 
   leanctx_recorded_version="$(

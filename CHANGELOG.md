@@ -4,6 +4,12 @@ All notable Orichum changes are recorded here.
 
 ## Unreleased
 
+### Changed
+
+- Normal installer output now shows the current operation throughout long
+  reconciliation paths and reports the failing operation with its concise,
+  actionable reason without requiring `--verbose`.
+
 ## 0.1.0-rc.11 - 2026-08-12
 
 ### Changed

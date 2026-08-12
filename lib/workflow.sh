@@ -100,12 +100,35 @@ print_install_progress() {
   esac
 }
 
-print_install_failure() {
+print_install_stage() {
   (($# == 1)) || return 2
-  printf '\nInstallation stopped.\n\n'
-  printf 'Run:\n  ./install.sh\n\n'
-  printf 'Diagnostics:\n  %s\n\n' "$1"
-  printf 'Details:\n  ./install.sh --verbose\n'
+  INSTALL_STAGE="$1"
+  printf '%s\n' "$INSTALL_STAGE"
+}
+
+print_install_failure() {
+  (($# == 3)) || return 2
+  local log_path="$1"
+  local stage="$2"
+  local reason="$3"
+  printf '\nInstallation stopped during: %s\n' "$stage"
+  printf 'Reason: %s\n\n' "$reason"
+  printf 'Retry:\n  ./install.sh\n\n'
+  printf 'Diagnostics:\n  %s\n\n' "$log_path"
+  printf 'Technical details:\n  ./install.sh --verbose\n'
+}
+
+install_failure_reason_from_log() {
+  (($# == 1)) || return 2
+  local line reason=
+  [[ -f "$1" && ! -L "$1" ]] || return 1
+  while IFS= read -r line; do
+    case "$line" in
+      'ERROR: '*) reason="${line#ERROR: }" ;;
+    esac
+  done <"$1"
+  [[ -n "$reason" ]] || return 1
+  printf '%s\n' "$reason"
 }
 
 print_install_component_results() {

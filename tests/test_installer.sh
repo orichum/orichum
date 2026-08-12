@@ -1218,6 +1218,14 @@ if pinned_release_allows_recorded_version 3.9.13 v3.9.12; then
   exit 1
 fi
 
+github_source_identity_matches_repository \
+  github:alupao/claudex@v0.2.5 alupao/claudex
+if github_source_identity_matches_repository \
+    github:StringKe/claudex@v0.2.4 alupao/claudex; then
+  printf 'legacy GitHub source identity remained reusable\n' >&2
+  exit 1
+fi
+
 recorded_binary_root="$fixture/recorded-binary"
 recorded_binary="$recorded_binary_root/tool"
 recorded_release_log="$fixture/recorded-release.log"

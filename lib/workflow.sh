@@ -209,6 +209,13 @@ install_state_component_field() {
     '.components[$name][$field]' "$manifest"
 }
 
+github_source_identity_matches_repository() {
+  (($# == 2)) || return 2
+  local source_identity="$1"
+  local repository="$2"
+  [[ "$source_identity" == "github:$repository@"* ]]
+}
+
 print_component_status_table() {
   (($# == 7)) || return 2
   local value

@@ -61,8 +61,9 @@ Setup asks for provider, account name, and projects folder (default
 `~/projects`). The first account is automatically Primary in the internal
 `shared` group. Setup invokes the active runtime's normal idempotent installer
 path, creates a compatible recommended stack without a separate wizard, maps
-the projects folder, and runs the final doctor check. Re-running it resumes from
-durable state instead of duplicating completed phases.
+the projects folder, creates its editable `.orichum/config.json`, and runs the
+final doctor check. Re-running it resumes from durable state without replacing
+an existing project configuration or duplicating completed phases.
 
 See [Installation, setup, and configuration](setup-and-configuration.md) for
 the complete prompt-by-prompt onboarding flow and every ongoing

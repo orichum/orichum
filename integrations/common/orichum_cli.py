@@ -103,6 +103,7 @@ from .project_context import (
 from .project_models import (
     ProjectModels,
     discover_project_models,
+    ensure_project_config,
     resolve_project_context,
 )
 from .provider_credentials import (
@@ -2503,6 +2504,37 @@ def _setup_project_ready(
     return True
 
 
+def _ensure_setup_project_config(
+    config: ResolvedConfig,
+    project: Path,
+) -> tuple[Path, bool]:
+    base = normalize_model_stacks(config.documents["model-stacks"])
+    context = resolve_control_plane_context(config.documents["projects"], project)
+    route = context.get("route")
+    if not isinstance(route, dict):
+        raise CliError("setup is incomplete: the project context is unavailable")
+    configured_stack = route.get("modelStack")
+    stack_name = (
+        configured_stack
+        if isinstance(configured_stack, str)
+        else base.default_stack
+    )
+    if stack_name not in base.stacks:
+        raise CliError("setup is incomplete: the project model stack is unavailable")
+    jira_profile = route.get("jiraProfile")
+    if route.get("atlassianConfigured") is True and jira_profile is None:
+        raise CliError(
+            "setup cannot create a project config while Jira credentials are "
+            "stored in the legacy project context"
+        )
+    return ensure_project_config(
+        project,
+        base.stacks[stack_name],
+        jira_profile=jira_profile,
+        github_account=route.get("githubAccount"),
+    )
+
+
 def _setup(
     paths: Mapping[str, Path],
     config: ResolvedConfig,
@@ -2628,6 +2660,14 @@ def _setup(
                 raise CliError(
                     "setup is incomplete: the project has no usable model stack"
                 )
+        project_config_path, project_config_created = (
+            _ensure_setup_project_config(config, project)
+        )
+        paths, config = _load()
+        if not _setup_project_ready(paths, config, project):
+            raise CliError(
+                "setup is incomplete: the project configuration is unusable"
+            )
         diagnostics.emit("")
         diagnostics.emit("Models")
         diagnostics.emit(
@@ -2635,6 +2675,9 @@ def _setup(
             if stack_reused
             else "  ✓ Recommended stack created"
         )
+        diagnostics.emit(f"  File: {_display_setup_path(project_config_path)}")
+        if project_config_created:
+            diagnostics.emit("  ✓ Project configuration created")
 
         status = _run_external(
             "orichum-doctor", [], diagnostics=diagnostics

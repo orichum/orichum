@@ -5,11 +5,13 @@ import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from integrations.common.project_models import (
     ProjectModelsError,
     discover_project_models,
+    ensure_project_config,
     resolve_project_context,
 )
 from integrations.common.stack_definition import normalize_model_stacks
@@ -143,6 +145,88 @@ class ProjectModelsTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.profiles.chmod(0o600)
+
+    def test_setup_configuration_is_created_from_stack_without_overwrite(self) -> None:
+        stack = self.stacks.stacks["default"]
+
+        path, created = ensure_project_config(
+            self.root,
+            stack,
+            jira_profile=None,
+            github_account=None,
+        )
+
+        self.assertTrue(created)
+        self.assertEqual(path, self.root / ".orichum" / "config.json")
+        self.assertEqual(
+            json.loads(path.read_text(encoding="utf-8")),
+            {
+                "schemaVersion": 1,
+                "controller": "gpt-fast",
+                "agents": {role: "gpt-fast" for role in _ROLES},
+                "jiraProfile": None,
+                "githubAccount": None,
+            },
+        )
+        self.assertEqual(path.stat().st_mode & 0o777, 0o644)
+
+        path.write_text(json.dumps(_document("claude-quality")), encoding="utf-8")
+        existing, replaced = ensure_project_config(self.root, stack)
+        self.assertEqual(existing, path)
+        self.assertFalse(replaced)
+        self.assertEqual(
+            json.loads(path.read_text(encoding="utf-8"))["controller"],
+            "claude-quality",
+        )
+
+    def test_setup_configuration_preserves_legacy_file(self) -> None:
+        legacy = _write(self.root, _legacy_document(), "models.json")
+
+        path, created = ensure_project_config(
+            self.root,
+            self.stacks.stacks["default"],
+        )
+
+        self.assertEqual(path, legacy)
+        self.assertFalse(created)
+        self.assertFalse((self.root / ".orichum" / "config.json").exists())
+
+    def test_setup_configuration_removes_partial_file_if_legacy_appears(self) -> None:
+        stack = self.stacks.stacks["default"]
+        original_stat = os.stat
+        legacy_created = False
+
+        def racing_stat(path, *args, **kwargs):
+            nonlocal legacy_created
+            if (
+                path == "models.json"
+                and kwargs.get("dir_fd") is not None
+                and kwargs.get("follow_symlinks") is False
+                and (self.root / ".orichum" / "config.json").exists()
+                and not legacy_created
+            ):
+                legacy_created = True
+                directory = self.root / ".orichum"
+                (directory / "models.json").write_text(
+                    json.dumps(_legacy_document()),
+                    encoding="utf-8",
+                )
+            return original_stat(path, *args, **kwargs)
+
+        with (
+            mock.patch(
+                "integrations.common.project_models.os.stat",
+                side_effect=racing_stat,
+            ),
+            self.assertRaisesRegex(
+                ProjectModelsError,
+                "legacy models.json appeared",
+            ),
+        ):
+            ensure_project_config(self.root, stack)
+
+        self.assertFalse((self.root / ".orichum" / "config.json").exists())
+        self.assertTrue((self.root / ".orichum" / "models.json").is_file())
 
     def test_absence_uses_machine_configuration(self) -> None:
         self.assertIsNone(discover_project_models(self.child, self.root, self.stacks))

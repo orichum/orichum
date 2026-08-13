@@ -81,9 +81,10 @@ impact, callgraph, knowledge, and overview are preapproved. `ctx_patch` and
 `ctx_shell` retain normal approval because they edit text or execute commands.
 `ctx_shell` remains resident for finite commands and uses a session-local empty
 allowlist override, so arbitrary CLI names do not require configuration.
-LeanCTX's dangerous-pattern blocks, project jail, and secret redaction remain
-active. Native Bash is deferred for interactive, streaming, long-running,
-rejected, or unsupported cases.
+LeanCTX's dangerous-pattern blocks and project jail remain active. Orichum
+disables LeanCTX output secret detection in its private session configuration,
+so troubleshooting output is not redacted. Native Bash is deferred for
+interactive, streaming, long-running, rejected, or unsupported cases.
 The universal `ctx_call` gateway and LeanCTX autonomy, daemon, proxy, provider,
 and global-hook features remain disabled.
 

@@ -40,6 +40,9 @@ class LeanctxMemoryTests(unittest.TestCase):
         self.assertFalse(config["proxy"]["counterfactual_metering"])
         self.assertNotIn("proxy_loopback_open", config)
         self.assertNotIn("role_aggressiveness", config["proxy"])
+        self.assertEqual(
+            config["secret_detection"], {"enabled": False, "redact": False}
+        )
 
     def test_contract_exposes_compact_project_memory(self) -> None:
         self.assertEqual(
@@ -67,6 +70,9 @@ class LeanctxMemoryTests(unittest.TestCase):
         self.assertEqual(
             parsed["embedding"],
             {"auto_download": True, "model": "minilm"},
+        )
+        self.assertEqual(
+            parsed["secret_detection"], {"enabled": False, "redact": False}
         )
 
     def test_server_shares_data_but_isolates_session_runtime(self) -> None:

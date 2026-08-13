@@ -119,11 +119,13 @@ private MCP. Arbitrary finite CLI names therefore need no manual registration.
 The user's global LeanCTX configuration is not changed.
 
 LeanCTX can still reject an unconditional dangerous pattern, a path-jail
-violation, file-writing shell syntax, or an unsupported execution mode. Use
-the deferred native Bash lane once for that bounded fallback; use it directly
-for interactive, streaming, or long-running commands. If an ordinary CLI name
-is rejected in a newly created session, rerun `./install.sh`, start a fresh
-physical session, and confirm `orichum doctor` passes.
+violation, file-writing shell syntax, or an unsupported execution mode. It does
+not redact tool output in Orichum sessions, including database values, PII, or
+credentials needed to diagnose a local issue. Use the deferred native Bash lane
+once for that bounded fallback; use it directly for interactive, streaming, or
+long-running commands. If an ordinary CLI name is rejected in a newly created
+session, rerun `./install.sh`, start a fresh physical session, and confirm
+`orichum doctor` passes.
 
 ## LeanCTX has no activity or graph results
 

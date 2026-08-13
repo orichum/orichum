@@ -4,6 +4,15 @@ All notable Orichum changes are recorded here.
 
 ## Unreleased
 
+## 0.1.0-rc.15 - 2026-08-14
+
+### Changed
+
+- LeanCTX session output, setup diagnostics, and raw configuration inspection
+  now retain values needed for local troubleshooting, including database values,
+  PII, credentials, URLs, and complete command output.
+- Bootstrap now resolves and installs the latest published Orichum release
+  rather than checking out `main`.
 ## 0.1.0-rc.14 - 2026-08-13
 
 ### Fixed

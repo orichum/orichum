@@ -105,9 +105,12 @@ including decisive validation after state changes.
 Orichum runs its private session MCP in LeanCTX's blocklist-only shell mode.
 There is no executable-name allowlist to maintain: installed tools, custom
 scripts, and future CLIs can use `ctx_shell` immediately. LeanCTX still blocks
-its unconditional dangerous patterns, confines paths to the verified project,
-redacts secrets, and leaves command approval to Claude Code. This override is
-session-local and does not modify the user's global LeanCTX configuration.
+its unconditional dangerous patterns and confines paths to the verified
+project. Orichum disables LeanCTX output secret detection, so local
+troubleshooting can inspect database values, PII, and credential-bearing
+output without redaction; command approval remains with Claude Code. This
+override is session-local and does not modify the user's global LeanCTX
+configuration.
 
 Native `Bash` is deferred and loaded only for interactive, streaming, or
 long-running processes; redirects or file writes rejected by LeanCTX; or one

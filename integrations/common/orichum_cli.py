@@ -163,43 +163,6 @@ class PendingProviderAccount:
     suggested_name: str
 
 
-_CALLBACK_URL = re.compile(
-    r"https?://[^\s\"']*(?:callback|oauth-callback)[^\s\"']*",
-    re.IGNORECASE,
-)
-_QUERY_SECRET = re.compile(
-    r"([?&](?:code|state|token|access_token|refresh_token|id_token)=)"
-    r"[^&\s\"']+",
-    re.IGNORECASE,
-)
-_SECRET_KEY = (
-    r"(?:access[_-]?token|refresh[_-]?token|id[_-]?token|token|code|"
-    r"api[_-]?key|client[_-]?secret)"
-)
-_JSON_SECRET = re.compile(
-    rf'("{_SECRET_KEY}"\s*:\s*")' r'[^\"]*',
-    re.IGNORECASE,
-)
-_ASSIGNED_SECRET = re.compile(
-    rf"(^|\s)({_SECRET_KEY}\s*=\s*)[^\s\"']+",
-    re.IGNORECASE | re.MULTILINE,
-)
-_AUTHORIZATION_SECRET = re.compile(
-    r"(Authorization\s*:\s*(?:Bearer|Token|Basic)\s+)[^\s\"']+",
-    re.IGNORECASE,
-)
-_MAX_SETUP_TECHNICAL_BYTES = 1024 * 1024
-_SETUP_TRUNCATION_MARKER = "\n[technical diagnostics truncated]\n"
-
-
-def _redact_diagnostics(value: str) -> str:
-    redacted = _CALLBACK_URL.sub("[REDACTED_CALLBACK_URL]", value)
-    redacted = _QUERY_SECRET.sub(r"\1[REDACTED]", redacted)
-    redacted = _JSON_SECRET.sub(r"\1[REDACTED]", redacted)
-    redacted = _ASSIGNED_SECRET.sub(
-        r"\1\2[REDACTED]", redacted
-    )
-    return _AUTHORIZATION_SECRET.sub(r"\1[REDACTED]", redacted)
 
 
 @dataclass
@@ -207,8 +170,6 @@ class SetupDiagnostics:
     path: Path
     verbose: bool
     _handle: TextIO
-    _technical_bytes: int = 0
-    _technical_truncated: bool = False
 
     @classmethod
     def create(
@@ -248,32 +209,17 @@ class SetupDiagnostics:
 
     def emit(self, value: str = "") -> None:
         print(value)
-        redacted = _redact_diagnostics(value + "\n")
-        self._handle.write(redacted)
+        self._handle.write(value + "\n")
         self._handle.flush()
 
     def sensitive(self, value: str) -> None:
         print(value, flush=True)
 
     def technical(self, value: str) -> None:
-        if self._technical_truncated:
-            return
-        redacted = _redact_diagnostics(value)
-        encoded = redacted.encode("utf-8")
-        remaining = max(
-            0, _MAX_SETUP_TECHNICAL_BYTES - self._technical_bytes
-        )
-        visible = encoded[:remaining].decode("utf-8", errors="ignore")
-        self._technical_bytes += len(visible.encode("utf-8"))
-        self._handle.write(visible)
-        if len(encoded) > remaining:
-            self._technical_truncated = True
-            self._handle.write(_SETUP_TRUNCATION_MARKER)
+        self._handle.write(value)
         self._handle.flush()
         if self.verbose:
-            print(visible, end="")
-            if self._technical_truncated:
-                print(_SETUP_TRUNCATION_MARKER, end="")
+            print(value, end="")
 
     def run_command(
         self,
@@ -531,11 +477,15 @@ def _render_table(headers: Sequence[str], rows: Sequence[Sequence[str]]) -> str:
     return "\n".join(rendered) + "\n"
 
 
-def _config_show(config: ResolvedConfig) -> dict[str, object]:
-    redacted = redact_control_plane(config)
+def _config_show(
+    config: ResolvedConfig,
+    *,
+    redacted: bool = True,
+) -> dict[str, object]:
+    values = redact_control_plane(config) if redacted else dict(config.documents)
     return {
-        name: {"source": config.sources[name], "value": redacted[name]}
-        for name in sorted(redacted)
+        name: {"source": config.sources[name], "value": values[name]}
+        for name in sorted(values)
     }
 
 
@@ -2546,7 +2496,7 @@ def _setup(
         diagnostics = SetupDiagnostics.create(paths, verbose=verbose)
     except (CliError, OSError) as error:
         print("Setup stopped while preparing private diagnostics.")
-        print(f"\nReason:\n  {_redact_diagnostics(str(error))}")
+        print(f"\nReason:\n  {error}")
         print("\nRun:\n  orichum setup")
         return 2
 
@@ -2560,10 +2510,7 @@ def _setup(
         diagnostics.emit("")
         diagnostics.emit("Reason:")
         diagnostics.emit(
-            "  "
-            + _redact_diagnostics(
-                reason or f"the setup step exited with status {status}"
-            )
+            "  " + (reason or f"the setup step exited with status {status}")
         )
         diagnostics.emit("")
         diagnostics.emit("Run:")
@@ -3532,8 +3479,17 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         metavar="COMMAND",
     )
+    show_config = command(
+        config_action,
+        "show",
+        "Show the merged configuration.",
+    )
+    show_config.add_argument(
+        "--raw",
+        action="store_true",
+        help="include unredacted values for local troubleshooting",
+    )
     for name, help_text in (
-        ("show", "Show the merged redacted configuration."),
         ("validate", "Validate the focused control plane."),
         ("paths", "Print configuration and data paths."),
     ):
@@ -4425,7 +4381,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         if parsed.command == "config":
             if parsed.config_command == "validate":
                 return 0
-            print(json.dumps(_config_show(config), indent=2, sort_keys=True))
+            print(
+                json.dumps(
+                    _config_show(config, redacted=not parsed.raw),
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
             return 0
         if parsed.command == "context":
             print(_context_list(config), end="")

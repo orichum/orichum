@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ORICHUM_REPOSITORY='https://github.com/orichum/orichum.git'
+ORICHUM_RELEASE_REPOSITORY='orichum/orichum'
 ORICHUM_SOURCE_DIR="${ORICHUM_SOURCE_DIR:-$HOME/.local/share/orichum}"
 
 bootstrap_usage() {
@@ -115,17 +116,39 @@ bootstrap_verify_prerequisites() {
     bootstrap_die 'Python 3.10 or newer is required'
 }
 
+bootstrap_latest_release_tag() {
+  if [[ -n "${ORICHUM_RELEASE_TAG:-}" ]]; then
+    printf '%s\n' "$ORICHUM_RELEASE_TAG"
+    return
+  fi
+  gh api "repos/$ORICHUM_RELEASE_REPOSITORY/releases" --paginate | \
+    jq -er '
+      map(select(.draft | not))
+      | max_by(.published_at)
+      | .tag_name
+      | select(type == "string" and test("^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.]+)?$"))
+    ' || bootstrap_die 'could not resolve the latest Orichum release'
+}
+
 bootstrap_checkout_or_update() {
-  local source_parent
+  local release_tag="$1"
+  local source_parent source_remote
   source_parent="$(dirname "$ORICHUM_SOURCE_DIR")"
   install -d -m 0700 "$source_parent"
   if [[ -e "$ORICHUM_SOURCE_DIR/.git" ]]; then
-    git -C "$ORICHUM_SOURCE_DIR" pull --ff-only origin main
+    source_remote="$(git -C "$ORICHUM_SOURCE_DIR" remote get-url origin)" || \
+      bootstrap_die 'Orichum checkout has no origin remote'
+    [[ "$source_remote" == "$ORICHUM_REPOSITORY" ]] || \
+      bootstrap_die 'Orichum checkout origin is not the official repository'
   elif [[ -e "$ORICHUM_SOURCE_DIR" ]]; then
     bootstrap_die "source directory exists but is not an Orichum checkout: $ORICHUM_SOURCE_DIR"
   else
-    git clone "$ORICHUM_REPOSITORY" "$ORICHUM_SOURCE_DIR"
+    git clone --depth 1 --branch "$release_tag" \
+      "$ORICHUM_REPOSITORY" "$ORICHUM_SOURCE_DIR"
   fi
+  git -C "$ORICHUM_SOURCE_DIR" fetch --depth 1 origin \
+    "refs/tags/$release_tag:refs/tags/$release_tag"
+  git -C "$ORICHUM_SOURCE_DIR" checkout --detach "refs/tags/$release_tag"
   [[ -x "$ORICHUM_SOURCE_DIR/install.sh" ]] || \
     bootstrap_die "Orichum installer is missing: $ORICHUM_SOURCE_DIR/install.sh"
 }
@@ -145,10 +168,20 @@ main() {
   export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
   bootstrap_command_exists curl || \
     bootstrap_die 'curl is required to run the bootstrap; install curl and retry'
+  local release_tag
   if [[ "$(bootstrap_script_dir)" != "$ORICHUM_SOURCE_DIR" ]]; then
     bootstrap_install_system_packages
-    bootstrap_checkout_or_update
-    exec "$ORICHUM_SOURCE_DIR/bootstrap.sh" "$@"
+  fi
+  bootstrap_command_exists gh || \
+    bootstrap_die 'gh is required to resolve the latest Orichum release'
+  bootstrap_command_exists jq || \
+    bootstrap_die 'jq is required to resolve the latest Orichum release'
+  release_tag="$(bootstrap_latest_release_tag)"
+  bootstrap_checkout_or_update "$release_tag"
+  if [[ "$(bootstrap_script_dir)" != "$ORICHUM_SOURCE_DIR" || \
+    "$(git -C "$ORICHUM_SOURCE_DIR" describe --exact-match --tags)" != "$release_tag" ]]; then
+    exec env ORICHUM_RELEASE_TAG="$release_tag" \
+      "$ORICHUM_SOURCE_DIR/bootstrap.sh" "$@"
   fi
   bootstrap_install_user_commands
   bootstrap_verify_prerequisites

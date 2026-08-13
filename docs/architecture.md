@@ -133,11 +133,12 @@ on later turns.
 The controller does not choose routes by enumerating CLIs or providers.
 `ctx_shell` is the resident finite-command lane; native `Bash` is deferred and
 loaded only for process control, a LeanCTX rejection, or unsupported shell
-behavior. Orichum disables LeanCTX's executable-name allowlist only inside the
-private session MCP, so installed, custom, and future CLIs use the same lane
-without per-command configuration. LeanCTX's dangerous-pattern blocking,
-project jail, and secret redaction remain active. Orichum does not replay a
-command through both paths unless one bounded raw follow-up is needed.
+behavior. Orichum disables LeanCTX's executable-name allowlist and output
+secret detection only inside the private session MCP, so installed, custom, and
+future CLIs use the same lane without per-command configuration or redacted
+troubleshooting output. LeanCTX's dangerous-pattern blocking and project jail
+remain active. Orichum does not replay a command through both paths unless one
+bounded raw follow-up is needed.
 `ctx_patch`, `ctx_shell`, and external-service mutations retain Claude Code's
 normal approval behavior.
 

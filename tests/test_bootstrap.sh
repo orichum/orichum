@@ -24,10 +24,17 @@ for url in \
 done
 rg -Fq "ORICHUM_REPOSITORY='https://github.com/orichum/orichum.git'" \
   "$ROOT/bootstrap.sh"
-rg -Fq 'git clone "$ORICHUM_REPOSITORY" "$ORICHUM_SOURCE_DIR"' \
+rg -Fq 'git clone --depth 1 --branch "$release_tag"' "$ROOT/bootstrap.sh"
+rg -Fq 'ORICHUM_RELEASE_REPOSITORY='"'"'orichum/orichum'"'"'' \
   "$ROOT/bootstrap.sh"
-rg -Fq 'git -C "$ORICHUM_SOURCE_DIR" pull --ff-only origin main' \
+rg -Fq 'gh api "repos/$ORICHUM_RELEASE_REPOSITORY/releases" --paginate' \
   "$ROOT/bootstrap.sh"
+rg -Fq 'git clone --depth 1 --branch "$release_tag"' "$ROOT/bootstrap.sh"
+rg -Fq 'refs/tags/$release_tag:refs/tags/$release_tag' "$ROOT/bootstrap.sh"
+if rg -Fq 'pull --ff-only origin main' "$ROOT/bootstrap.sh"; then
+  printf 'bootstrap updates from main instead of a release tag\n' >&2
+  exit 1
+fi
 rg -Fq 'bootstrap_install_user_command codex' "$ROOT/bootstrap.sh"
 if rg -Fq 'sudo npm' "$ROOT/bootstrap.sh"; then
   printf 'bootstrap uses sudo npm\n' >&2

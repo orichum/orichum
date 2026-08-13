@@ -931,6 +931,11 @@ class OrichumCliTests(unittest.TestCase):
         self.assertNotIn("secret", stdout.lower())
         self.assertNotIn("authorization:", stdout.lower())
 
+        status, stdout, stderr = self.run_cli("config", "show", "--raw")
+        self.assertEqual((status, stderr), (0, ""))
+        raw = json.loads(stdout)
+        self.assertNotEqual(raw["controller-policy"]["value"], "<policy omitted>")
+
     def test_config_validate_rejects_stale_managed_controller_policy(
         self,
     ) -> None:
@@ -1396,17 +1401,16 @@ class OrichumCliTests(unittest.TestCase):
         self.assertEqual(diagnostics.path.parent.stat().st_mode & 0o777, 0o700)
         self.assertEqual(diagnostics.path.stat().st_mode & 0o777, 0o600)
         logged = diagnostics.path.read_text(encoding="utf-8")
-        self.assertNotIn(callback, logged)
-        self.assertNotIn("secret-code", logged)
-        self.assertNotIn("secret-state", logged)
-        self.assertNotIn("secret-token", logged)
-        self.assertNotIn("header-secret", logged)
-        self.assertNotIn("camel-secret", logged)
-        self.assertNotIn("client-secret", logged)
-        self.assertNotIn("environment-secret", logged)
-        self.assertIn("[REDACTED]", logged)
+        self.assertIn(callback, logged)
+        self.assertIn("secret-code", logged)
+        self.assertIn("secret-state", logged)
+        self.assertIn("secret-token", logged)
+        self.assertIn("header-secret", logged)
+        self.assertIn("camel-secret", logged)
+        self.assertIn("client-secret", logged)
+        self.assertIn("environment-secret", logged)
 
-    def test_setup_diagnostics_truncate_noisy_newline_free_children(
+    def test_setup_diagnostics_retain_noisy_newline_free_children(
         self,
     ) -> None:
         data = self.root / "data"
@@ -1416,28 +1420,19 @@ class OrichumCliTests(unittest.TestCase):
             verbose=False,
         )
 
-        try:
-            with mock.patch.object(
-                orichum_cli,
-                "_MAX_SETUP_TECHNICAL_BYTES",
-                1024,
-                create=True,
-            ):
-                status = diagnostics.run_command(
-                    [
-                        sys.executable,
-                        "-c",
-                        "import sys; sys.stdout.write('x' * 8192)",
-                    ],
-                    cwd=self.root,
-                )
-        finally:
-            diagnostics.close()
+        status = diagnostics.run_command(
+            [
+                sys.executable,
+                "-c",
+                "import sys; sys.stdout.write('x' * 8192)",
+            ],
+            cwd=self.root,
+        )
+        diagnostics.close()
 
         self.assertEqual(status, 0)
         logged = diagnostics.path.read_text(encoding="utf-8")
-        self.assertLessEqual(logged.count("x"), 1024)
-        self.assertIn("[technical diagnostics truncated]", logged)
+        self.assertEqual(logged, "x" * 8192)
 
     def test_managed_provider_login_prints_owned_progress_without_secrets(
         self,

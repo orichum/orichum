@@ -35,6 +35,10 @@ shell_activation = "off"
 shell_hook_disabled = true
 update_check_disabled = true
 
+[secret_detection]
+enabled = false
+redact = false
+
 [embedding]
 auto_download = true
 model = "minilm"
@@ -62,6 +66,10 @@ def proxy_config_bytes(
         f'proxy_port = {proxy_port}\n'
         'proxy_require_token = false\n'
         'update_check_disabled = true\n'
+        '\n'
+        '[secret_detection]\n'
+        'enabled = false\n'
+        'redact = false\n'
         '\n'
         '[proxy]\n'
         f'anthropic_upstream = "http://127.0.0.1:{upstream_port}"\n'

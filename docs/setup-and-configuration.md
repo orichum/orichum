@@ -35,11 +35,11 @@ curl -fsSL https://raw.githubusercontent.com/orichum/orichum/main/bootstrap.sh |
 ```
 
 The bootstrap installs missing prerequisites, including Claude Code, Codex CLI,
-uv, jq, and required host tools. It clones Orichum to
-`~/.local/share/orichum`, then runs its installer. Automatic host-package
-installation supports Ubuntu and macOS with Homebrew. Direct installation from
-a checkout remains available for supported hosts that already have the required
-commands:
+uv, jq, and required host tools. It resolves and checks out the latest published
+Orichum release at `~/.local/share/orichum`, then runs its installer; it never
+installs from the `main` branch. Automatic host-package installation supports
+Ubuntu and macOS with Homebrew. Direct installation from a checkout remains
+available for supported hosts that already have the required commands:
 
 ```bash
 git clone https://github.com/orichum/orichum.git
@@ -241,8 +241,11 @@ orichum setup
 Completed phases are shown as already configured and are not repeated.
 
 On failure, normal output states the failed action, a bounded reason, the
-command to retry, and the private diagnostic-log path. Stream the technical
-details on the next attempt when necessary:
+command to retry, and the private diagnostic-log path. Private logs retain
+complete troubleshooting output, including endpoint paths, database values,
+PII, and credentials; they are owned by the current user and mode `0600`.
+Delete the log after use. Stream the technical details on the next attempt when
+necessary:
 
 ```bash
 orichum setup --verbose

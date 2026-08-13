@@ -33,7 +33,7 @@ file differed from that commit. Builds without Git metadata add
 | `orichum setup [--verbose] [PROJECT]` | Resume first-run provider, runtime, automatic stack, projects-folder, and readiness setup |
 | `orichum configure [--project PROJECT] [--verbose]` | Guide ongoing account, backup, model, agent-role, project, and repair configuration; defaults to the current project |
 | `orichum` / `orichum run [--leanctx-profile lean\|full]` | Start a project-aware session; new sessions default to the lean provider-residency profile |
-| `orichum config show` | Show the merged, redacted control plane |
+| `orichum config show [--raw]` | Show the merged control plane; use `--raw` only for local troubleshooting |
 | `orichum config validate` | Validate focused configuration |
 | `orichum config paths` | Print the consolidated home, configuration, data, cache, and state paths |
 | `orichum context list` | Show configured parent-directory contexts |

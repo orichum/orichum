@@ -22,11 +22,12 @@ For a new installation, copy and run:
 curl -fsSL https://raw.githubusercontent.com/orichum/orichum/main/bootstrap.sh | bash
 ```
 
-The bootstrap clones Orichum to `~/.local/share/orichum`, installs missing
-prerequisites including Claude Code, Codex CLI, uv, and jq, then runs
-`install.sh`. Automatic host-package installation supports Ubuntu and macOS
-with Homebrew. It does not enable systemd for WSL; enable it and restart WSL
-before installing. To inspect the bootstrap before running it:
+The bootstrap resolves the latest published Orichum release, checks out that
+release at `~/.local/share/orichum`, installs missing prerequisites including
+Claude Code, Codex CLI, uv, and jq, then runs `install.sh`. It never installs
+from the `main` branch. Automatic host-package installation supports Ubuntu and
+macOS with Homebrew. It does not enable systemd for WSL; enable it and restart
+WSL before installing. To inspect the bootstrap before running it:
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/orichum/orichum/main/bootstrap.sh

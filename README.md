@@ -43,9 +43,10 @@ curl -fsSL https://raw.githubusercontent.com/orichum/orichum/main/bootstrap.sh |
 ```
 
 The bootstrap installs missing prerequisites, including Claude Code, Codex CLI,
-uv, jq, and the host tools Orichum requires. It keeps its checkout at
-`~/.local/share/orichum`; rerunning the same command updates it and reconciles
-the installation.
+uv, jq, and the host tools Orichum requires. It keeps a checkout of the latest
+published Orichum release at `~/.local/share/orichum`; rerunning the same
+command resolves and installs the latest release again, never the `main`
+branch.
 
 The installer prepares the complete local runtime. Without a provider account,
 it completes safely in `pending-provider-login` state and prints one next

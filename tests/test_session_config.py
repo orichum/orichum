@@ -670,6 +670,10 @@ shell_activation = "off"
 shell_hook_disabled = true
 update_check_disabled = true
 
+[secret_detection]
+enabled = false
+redact = false
+
 [embedding]
 auto_download = true
 model = "minilm"

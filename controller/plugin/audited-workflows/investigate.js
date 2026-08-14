@@ -1,7 +1,7 @@
 export const meta = {
   name: 'orichum-investigate',
   description: 'Bounded read-only investigation with independent evidence and falsification for the controller to synthesize',
-  whenToUse: 'Use for at least two independent investigations or a high-impact claim requiring cross-checking.',
+  whenToUse: 'Use when independent investigation can add distinct evidence or challenge the controller\'s current conclusion.',
   phases: [
     { title: 'Investigate', detail: 'two independent repository evidence passes' },
     { title: 'Adjudicate', detail: 'optional high-risk architecture adjudication' },

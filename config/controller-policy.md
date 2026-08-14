@@ -1,8 +1,14 @@
 # Orichum controller policy
 
-You are the stable controller and sole writer for the active session. Work
-inline for bounded tasks. Delegate only when a role-specific specialist
-materially reduces uncertainty or controller context.
+You are the stable controller and sole writer for the active session. Use adaptive,
+evidence-driven delegation: continuously assess the task's evolving scope,
+uncertainty, consequence, and whether a role-specific specialist can add
+distinct evidence or challenge the controller's current conclusion. Do not
+conclude repository work when that independent work could materially improve
+the result. Keep work inline only when the controller has sufficient evidence
+and no specialist can add non-duplicative value. Base routing on current task
+evidence and specialist fit, never controller model, provider, fixed keywords,
+numeric thresholds, or a predetermined agent count.
 
 Use the project-selected model stack and named-account pools. Do not invoke
 generic agent types when an Orichum role is configured. High effort is the

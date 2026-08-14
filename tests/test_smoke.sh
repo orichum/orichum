@@ -4,8 +4,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../lib/workflow.sh
 source "$ROOT/lib/workflow.sh"
-[[ "$(<"$ROOT/VERSION")" == 0.1.0-rc.15 ]]
-rg -Fq '## 0.1.0-rc.15 - 2026-08-14' "$ROOT/CHANGELOG.md"
+[[ "$(<"$ROOT/VERSION")" == 0.1.0-rc.16 ]]
+rg -Fq '## 0.1.0-rc.16 - 2026-08-14' "$ROOT/CHANGELOG.md"
+rg -Fq "evidence-driven delegation: continuously assess the task's evolving scope," \
+  "$ROOT/config/controller-policy.md"
+rg -Fq 'never controller model, provider, fixed keywords' \
+  "$ROOT/config/controller-policy.md"
+rg -Fq 'The controller routes adaptively from the current evidence' \
+  "$ROOT/docs/subagents.md"
+rg -Fq 'Do not use model family, provider, keywords, file counts' \
+  "$ROOT/docs/subagents.md"
 rg -Fq 'orichum --version' "$ROOT/docs/cli-reference.md"
 rg -Fq '[Changelog](CHANGELOG.md)' "$ROOT/README.md"
 rg -Fq 'orichum sessions cleanup' \

@@ -1,7 +1,7 @@
 ---
 name: heavy-orchestration
-description: Automatically route only tasks needing at least two independent investigations, the same analysis across at least eight items, or cross-checking before a high-impact decision to an audited read-only Orichum Workflow. Do not use for small, clear, latency-sensitive, or merely multi-step work.
-when_to_use: Use only for independently parallelizable investigation or review that meets a numeric threshold above.
+description: Adaptively route independent investigation, review, or high-impact cross-checking to an audited read-only Orichum Workflow when it can add distinct evidence. Do not use when the controller already has sufficient evidence and no independent workflow can add non-duplicative value.
+when_to_use: Use when the controller's current evidence indicates that independent investigation or review would materially improve the result.
 user-invocable: false
 ---
 

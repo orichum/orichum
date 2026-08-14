@@ -1,14 +1,18 @@
 # Subagents
 
 Orichum uses a subagent-driven workflow without requiring manual workflow
-commands. The controller decides when a role-specific specialist will
-materially reduce uncertainty or controller context.
+commands. The controller routes adaptively from the current evidence, task
+scope, uncertainty, consequence, and the value of an independent perspective.
 
 ## Policy
 
-- Bounded, clear tasks stay inline.
-- Independent repository investigation can use an explorer.
-- Verification can use a separate verifier.
+- Routing is evidence-driven: use the smallest suitable specialist whenever it
+  can add distinct evidence or challenge the controller's current conclusion.
+- Keep work inline only when the controller has sufficient evidence and no
+  specialist can add non-duplicative value.
+- Do not use model family, provider, keywords, file counts, or a predetermined
+  agent count as a routing rule.
+- Verification uses a separate verifier when a change needs independent review.
 - Correctness and architecture specialists are reserved for relevant risk.
 - Claude Code's built-in `Plan` and `Explore` requests are routed to audited
   Orichum roles instead of being allowed as generic agents.
@@ -78,5 +82,5 @@ Runtime limits live in `runtime.json`:
 ```
 
 These values bound fan-out and concurrency; they do not truncate a worker's
-response. Defining a specialist in a model stack makes it available, not
-mandatory on every request.
+response. Defining a specialist in a model stack makes it available whenever
+adaptive routing finds that it can add non-duplicative value.

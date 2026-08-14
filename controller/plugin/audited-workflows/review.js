@@ -1,7 +1,7 @@
 export const meta = {
   name: 'orichum-review',
   description: 'Bounded read-only independent verification and correctness criticism',
-  whenToUse: 'Use for repeated review across at least eight items or a high-impact cross-check.',
+  whenToUse: 'Use when independent review can add distinct evidence or challenge the controller\'s current conclusion.',
   phases: [
     { title: 'Review', detail: 'repository verification and correctness criticism' },
     { title: 'Adjudicate', detail: 'optional high-risk architecture adjudication' },

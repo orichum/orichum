@@ -141,6 +141,12 @@ workflow(args, parallel, agent, () => {}).then(
         self.assertIn("pass a bounded summary", router)
         self.assertIn("Do not ask repository agents to collect live evidence", router)
 
+    def test_router_uses_adaptive_routing_without_numeric_thresholds(self) -> None:
+        router = " ".join(ROUTER_SKILL.read_text(encoding="utf-8").split())
+
+        self.assertIn("controller's current evidence", router)
+        self.assertNotIn("at least two independent investigations", router)
+        self.assertNotIn("at least eight items", router)
 
 if __name__ == "__main__":
     unittest.main()

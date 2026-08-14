@@ -4,6 +4,16 @@ All notable Orichum changes are recorded here.
 
 ## Unreleased
 
+## 0.1.0-rc.16 - 2026-08-14
+
+### Changed
+
+- Delegation now adapts to current task evidence and specialist fit rather than
+  controller model, provider, fixed keywords, numeric thresholds, or preset
+  fan-out.
+- Audited investigation and review workflows now use the same adaptive routing
+  rule.
+
 ## 0.1.0-rc.15 - 2026-08-14
 
 ### Changed

@@ -71,6 +71,11 @@ probes; the full doctor check follows once a provider route is available. See
 [Installation and upgrades](docs/installation.md) for details, locations, port
 handling, and uninstall options.
 
+For OS troubleshooting or scratch scripts outside a project, run `orichum setup
+--user` once. This configures a user normal scope from your active account pools;
+it never discovers repository `.orichum/config.json` or `models.json`, and it
+never attaches a project Jira or GitHub identity.
+
 Check the installed Orichum release with `orichum --version`. See the
 [Changelog](CHANGELOG.md) for release history and current release-candidate
 limitations.

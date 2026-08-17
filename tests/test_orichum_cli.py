@@ -1973,6 +1973,95 @@ class OrichumCliTests(unittest.TestCase):
         self.assertIn("  ✓ Project configuration created", output)
         self.assertTrue(output.endswith("Orichum is ready.\n"))
 
+    def test_setup_user_configures_normal_scope_from_active_account_pools(
+        self,
+    ) -> None:
+        paths = {
+            "config": self.root / "config",
+            "data": self.root / "data",
+            "state": self.root / "state",
+        }
+        config = SimpleNamespace(
+            documents={
+                "projects": {"schemaVersion": 2, "normal": None, "contexts": []},
+                "model-stacks": object(),
+                "providers": {"accountPools": {"personal": {}}},
+            }
+        )
+        refreshed = SimpleNamespace(
+            documents={
+                "projects": {
+                    "schemaVersion": 2,
+                    "normal": {"modelStack": "recommended", "accountPools": ["personal"]},
+                    "contexts": [],
+                }
+            }
+        )
+        account = SimpleNamespace(
+            name="Personal GPT", pool="personal", priority=100
+        )
+
+        with (
+            mock.patch.object(
+                orichum_cli, "_active_provider_accounts", return_value=(account,)
+            ),
+            mock.patch.object(orichum_cli, "_runtime_ready", return_value=True),
+            mock.patch.object(
+                orichum_cli,
+                "normalize_model_stacks",
+                return_value=SimpleNamespace(stacks={"balanced": object()}),
+            ),
+            mock.patch.object(
+                orichum_cli, "configure_normal_scope"
+            ) as configure,
+            mock.patch.object(
+                orichum_cli, "_load", return_value=(paths, refreshed)
+            ),
+            mock.patch.object(
+                orichum_cli, "_setup_normal_ready", side_effect=(False, True)
+            ),
+            mock.patch.object(
+                orichum_cli, "create_recommended_stack"
+            ) as recommended,
+            mock.patch.object(
+                orichum_cli, "_reconcile_runtime", return_value=0
+            ) as reconcile,
+            mock.patch.object(
+                orichum_cli, "_run_external", return_value=0
+            ) as external,
+        ):
+            status = orichum_cli._setup(paths, config, None, normal_scope=True)
+
+        self.assertEqual(status, 0)
+        configure.assert_called_once_with(
+            paths["config"] / "projects.json",
+            model_stack=None,
+            account_pools=("personal",),
+            known_stacks={"balanced": mock.ANY},
+            known_pools={"personal": {}},
+        )
+        recommended.assert_called_once_with(
+            paths, refreshed, launch_dir=Path.home()
+        )
+        reconcile.assert_called_once_with(mock.ANY)
+        external.assert_called_once_with(
+            "orichum-doctor", [], diagnostics=mock.ANY
+        )
+
+    def test_setup_user_rejects_project_path_before_any_setup_work(self) -> None:
+        with mock.patch.object(orichum_cli.SetupDiagnostics, "create") as create:
+            with self.assertRaisesRegex(
+                orichum_cli.CliError, "setup --user does not accept a project path"
+            ):
+                orichum_cli._setup(
+                    {},
+                    SimpleNamespace(),
+                    str(self.root / "project"),
+                    normal_scope=True,
+                )
+
+        create.assert_not_called()
+
     def test_setup_reuses_completed_account_runtime_context_and_stack(
         self,
     ) -> None:

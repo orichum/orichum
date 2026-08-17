@@ -341,12 +341,61 @@ def _validate_projects(
     routing: NormalizedStacks,
     pools: Mapping[str, object],
 ) -> None:
-    raw = _exact(document, {"schemaVersion", "contexts"}, "projects")
-    if type(raw["schemaVersion"]) is not int or raw["schemaVersion"] != 1:
-        raise ConfigError("projects schemaVersion must be exactly 1")
+    if not isinstance(document, dict):
+        raise ConfigError("projects must be an object")
+    schema_version = document.get("schemaVersion")
+    expected = (
+        {"schemaVersion", "contexts"}
+        if schema_version == 1
+        else {"schemaVersion", "normal", "contexts"}
+    )
+    raw = _exact(document, expected, "projects")
+    if type(schema_version) is not int or schema_version not in {1, 2}:
+        raise ConfigError("projects schemaVersion must be exactly 1 or 2")
     contexts = raw["contexts"]
     if not isinstance(contexts, list):
         raise ConfigError("project contexts must be an array")
+
+    def validate_route(
+        name: str,
+        selected_pools: tuple[str, ...],
+        selected_stack: object,
+    ) -> None:
+        if any(pool not in pools for pool in selected_pools):
+            raise ConfigError(f"{name} names an unknown account pool")
+        eligible_providers: set[str] = set()
+        for pool in selected_pools:
+            eligible_providers.update(pools[pool])
+        stack_name = selected_stack or routing.default_stack
+        if not isinstance(stack_name, str):
+            raise ConfigError(f"{name} modelStack is invalid")
+        stack = routing.stacks.get(stack_name)
+        if stack is None:
+            raise ConfigError(f"{name} names an unknown model stack")
+
+        def candidate_is_routable(candidate: StackCandidate) -> bool:
+            return bool(eligible_providers.intersection(candidate.providers))
+
+        if not any(candidate_is_routable(candidate) for candidate in stack.controller):
+            raise ConfigError(f"{name} cannot route its controller")
+        for role in ROLES:
+            if not any(
+                candidate_is_routable(candidate) for candidate in stack.agents[role]
+            ):
+                raise ConfigError(f"{name} cannot route role {role}")
+
+    if schema_version == 2 and raw["normal"] is not None:
+        normal = raw["normal"]
+        if not isinstance(normal, dict) or set(normal) != {
+            "modelStack",
+            "accountPools",
+        }:
+            raise ConfigError("normal scope has invalid fields")
+        selected_pools = _unique_identifiers(
+            normal["accountPools"], "normal accountPools"
+        )
+        validate_route("normal scope", selected_pools, normal["modelStack"])
+
     portable_contexts = []
     for index, raw_context in enumerate(contexts):
         base_keys = {
@@ -359,9 +408,7 @@ def _validate_projects(
             base_keys,
             base_keys | {"githubAccount"},
         ):
-            raise ConfigError(
-                f"project context {index} has invalid fields"
-            )
+            raise ConfigError(f"project context {index} has invalid fields")
         context = raw_context
         try:
             validate_github_account(context.get("githubAccount"))
@@ -372,33 +419,9 @@ def _validate_projects(
         selected_pools = _unique_identifiers(
             context["accountPools"], f"project context {index} accountPools"
         )
-        if any(pool not in pools for pool in selected_pools):
-            raise ConfigError(f"project context {index} names an unknown account pool")
-        eligible_providers: set[str] = set()
-        for pool in selected_pools:
-            eligible_providers.update(pools[pool])
-        selected_stack = context["modelStack"] or routing.default_stack
-        stack = routing.stacks.get(selected_stack)
-        if stack is None:
-            raise ConfigError(f"project context {index} names an unknown model stack")
-
-        def candidate_is_routable(candidate: StackCandidate) -> bool:
-            return bool(
-                eligible_providers.intersection(candidate.providers)
-            )
-
-        if not any(candidate_is_routable(candidate) for candidate in stack.controller):
-            raise ConfigError(
-                f"project context {index} cannot route its controller"
-            )
-        for role in ROLES:
-            if not any(
-                candidate_is_routable(candidate)
-                for candidate in stack.agents[role]
-            ):
-                raise ConfigError(
-                    f"project context {index} cannot route role {role}"
-                )
+        validate_route(
+            f"project context {index}", selected_pools, context["modelStack"]
+        )
         portable_contexts.append(
             {
                 key: value
@@ -406,11 +429,8 @@ def _validate_projects(
                 if key != "accountPools"
             }
         )
-    validate_config_document(
-        {"contexts": portable_contexts},
-        Path.home(),
-        dict(routing.stacks),
-    )
+    portable = {"contexts": portable_contexts}
+    validate_config_document(portable, Path.home(), dict(routing.stacks))
 
 
 def _validate_plugins(document: object) -> None:

@@ -716,15 +716,20 @@ def _normalize_projects_payload(payload: bytes) -> bytes:
         raise InstallControlPlaneError(
             "installed projects.json is invalid"
         ) from error
+    if not isinstance(document, dict):
+        raise InstallControlPlaneError("installed projects.json is invalid")
+    schema_version = document.get("schemaVersion")
+    expected = (
+        {"schemaVersion", "contexts"}
+        if schema_version == 1
+        else {"schemaVersion", "normal", "contexts"}
+    )
     if (
-        not isinstance(document, dict)
-        or set(document) != {"schemaVersion", "contexts"}
-        or document.get("schemaVersion") != 1
+        set(document) != expected
+        or schema_version not in {1, 2}
         or not isinstance(document.get("contexts"), list)
     ):
-        raise InstallControlPlaneError(
-            "installed projects.json is invalid"
-        )
+        raise InstallControlPlaneError("installed projects.json is invalid")
     common = (
         "root",
         "modelStack",
@@ -744,22 +749,16 @@ def _normalize_projects_payload(payload: bytes) -> bytes:
             or any(name not in context for name in common)
             or not set(context).issubset(current | retired)
         ):
-            raise InstallControlPlaneError(
-                "installed projects.json is invalid"
-            )
+            raise InstallControlPlaneError("installed projects.json is invalid")
         item = {name: context[name] for name in common}
         item["atlassian"] = context.get("atlassian")
         if "githubAccount" in context:
             item["githubAccount"] = context["githubAccount"]
         normalized.append(item)
-    return (
-        json.dumps(
-            {"schemaVersion": 1, "contexts": normalized},
-            indent=2,
-            ensure_ascii=False,
-        )
-        + "\n"
-    ).encode()
+    result = {"schemaVersion": schema_version, "contexts": normalized}
+    if schema_version == 2:
+        result["normal"] = document["normal"]
+    return (json.dumps(result, indent=2, ensure_ascii=False) + "\n").encode()
 
 
 def _digest(payload: bytes) -> str:

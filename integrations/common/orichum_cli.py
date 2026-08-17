@@ -97,6 +97,7 @@ from .project_context import (
     ContextError,
     add_context_commands,
     assign_stack_to_context,
+    configure_normal_scope,
     control_plane_transaction,
     resolve_control_plane_context,
 )
@@ -657,7 +658,10 @@ def _resolve_stack(
             config.documents["projects"], launch_dir
         )
         route = context.get("route")
-        if isinstance(route, Mapping):
+        if (
+            isinstance(route, Mapping)
+            and route.get("scope") in {None, "context"}
+        ):
             project_models = discover_project_models(
                 Path(str(context["launchDirReal"])),
                 Path(str(route["contextRootReal"])),
@@ -821,7 +825,13 @@ def _leanctx_project_root(
         return Path(repository)
     route = context.get("route")
     root = route.get("contextRootReal") if isinstance(route, dict) else None
-    return Path(root) if isinstance(root, str) and root else None
+    if isinstance(root, str) and root:
+        return Path(root)
+    if isinstance(route, dict) and route.get("scope") == "normal":
+        launch = context.get("launchDirReal")
+        if isinstance(launch, str) and launch:
+            return Path(launch)
+    return None
 
 
 def _leanctx_list(
@@ -1241,6 +1251,21 @@ def _validate_live_models(
         )
 
 
+def _session_root(
+    context: Mapping[str, object],
+    route: Mapping[str, object],
+) -> Path:
+    if route.get("scope") in {None, "context"}:
+        root = route.get("contextRootReal")
+        if isinstance(root, str) and root:
+            return Path(root)
+    if route.get("scope") == "normal":
+        launch = context.get("launchDirReal")
+        if isinstance(launch, str) and launch:
+            return Path(launch)
+    raise CliError("session scope is invalid")
+
+
 
 def _session_model_inputs(
     paths: Mapping[str, Path],
@@ -1321,7 +1346,7 @@ def _prepare_new_session(
     )
     logical = create_logical_session(
         paths["state"],
-        project_root=Path(route["contextRootReal"]),
+        project_root=_session_root(context, route),
         stack=plan.stack,
         controller=plan.controller,
         agents=plan.agents,
@@ -1348,9 +1373,9 @@ def _prepare_resume(
     route = context.get("route")
     if (
         not isinstance(route, dict)
-        or Path(route["contextRootReal"]) != logical.project_root
+        or _session_root(context, route) != logical.project_root
     ):
-        raise CliError("resume must be launched inside the session project")
+        raise CliError("resume must be launched inside the session workspace")
     accounts = load_accounts(paths["config"] / "accounts.json")
     validate_account_bindings(accounts, config.documents["providers"])
     _validate_session_routes(
@@ -1444,9 +1469,9 @@ def _prepare_fork(
     route = context.get("route")
     if (
         not isinstance(route, dict)
-        or Path(route["contextRootReal"]) != parent.project_root
+        or _session_root(context, route) != parent.project_root
     ):
-        raise CliError("fork must be launched inside the session project")
+        raise CliError("fork must be launched inside the session workspace")
     accounts = load_accounts(paths["config"] / "accounts.json")
     validate_account_bindings(accounts, config.documents["providers"])
     if requested_stack is None:
@@ -2395,7 +2420,8 @@ def _project_context_mapped(config: ResolvedConfig, project: Path) -> bool:
     resolved = resolve_control_plane_context(
         config.documents["projects"], project
     )
-    return isinstance(resolved.get("route"), dict)
+    route = resolved.get("route")
+    return isinstance(route, Mapping) and route.get("scope") == "context"
 
 
 def _setup_project_ready(
@@ -2454,6 +2480,60 @@ def _setup_project_ready(
     return True
 
 
+def _setup_normal_ready(
+    paths: Mapping[str, Path],
+    config: ResolvedConfig,
+) -> bool:
+    try:
+        _verify_runtime(paths)
+        base = normalize_model_stacks(config.documents["model-stacks"])
+        context, project_models = resolve_project_context(
+            config.documents["projects"],
+            Path.home(),
+            Path(paths["config"]) / "jira-profiles.json",
+            base,
+        )
+        route = context.get("route")
+        if not isinstance(route, dict) or route.get("scope") != "normal":
+            return False
+        session_config, requested_stack, bindings, _project_models = (
+            _session_model_inputs(paths, config, context, project_models)
+        )
+        accounts = load_accounts(paths["config"] / "accounts.json")
+        validate_account_bindings(accounts, config.documents["providers"])
+        available = _live_models(paths)
+        plan = resolve_session_plan(
+            session_config,
+            accounts,
+            pools=tuple(route["accountPools"]),
+            requested_stack=requested_stack,
+            health={},
+            selection_ordinal=0,
+            bindings=bindings,
+            available_models=available,
+        )
+        _validate_plan_routes(
+            controller=plan.controller,
+            agents=plan.agents,
+            accounts=accounts,
+            auth_dir=paths["data"] / "auth",
+            provider_document=config.documents["providers"],
+        )
+        _validate_live_models(
+            paths, plan.controller, plan.agents, available=available
+        )
+    except (
+        AccountError,
+        CliError,
+        CredentialError,
+        LogicalSessionError,
+        RouteError,
+        RoutingError,
+        StackBindingError,
+    ):
+        return False
+    return True
+
 def _ensure_setup_project_config(
     config: ResolvedConfig,
     project: Path,
@@ -2490,8 +2570,11 @@ def _setup(
     config: ResolvedConfig,
     requested_project: str | None,
     *,
+    normal_scope: bool = False,
     verbose: bool = False,
 ) -> int:
+    if normal_scope and requested_project is not None:
+        raise CliError("setup --user does not accept a project path")
     try:
         diagnostics = SetupDiagnostics.create(paths, verbose=verbose)
     except (CliError, OSError) as error:
@@ -2562,6 +2645,53 @@ def _setup(
             if status != 0:
                 return stopped("starting Orichum services", status)
             paths, config = _load()
+
+        if normal_scope:
+            projects = config.documents["projects"]
+            if not isinstance(projects, Mapping):
+                raise CliError("normal scope configuration is unavailable")
+            if projects.get("normal") is None:
+                base = normalize_model_stacks(config.documents["model-stacks"])
+                raw_pools = config.documents["providers"].get("accountPools")
+                if not isinstance(raw_pools, Mapping):
+                    raise CliError("provider account pools are unavailable")
+                configure_normal_scope(
+                    Path(paths["config"]) / "projects.json",
+                    model_stack=None,
+                    account_pools=tuple(
+                        dict.fromkeys(
+                            account.pool for account in active_accounts
+                        )
+                    ),
+                    known_stacks=base.stacks,
+                    known_pools=raw_pools,
+                )
+                paths, config = _load()
+            stack_reused = _setup_normal_ready(paths, config)
+            if not stack_reused:
+                create_recommended_stack(paths, config, launch_dir=Path.home())
+                paths, config = _load()
+                status = _reconcile_runtime(diagnostics)
+                if status != 0:
+                    return stopped("starting Orichum services", status)
+                paths, config = _load()
+                if not _setup_normal_ready(paths, config):
+                    raise CliError(
+                        "setup is incomplete: the normal scope has no usable model stack"
+                    )
+            diagnostics.emit("")
+            diagnostics.emit("Normal scope")
+            diagnostics.emit("  ✓ Ready for non-project work")
+            diagnostics.emit("  Stack: recommended" if not stack_reused else "  ✓ Already configured")
+            status = _run_external("orichum-doctor", [], diagnostics=diagnostics)
+            if status != 0:
+                return stopped("verifying Orichum services", status)
+            diagnostics.emit("")
+            diagnostics.emit("Services")
+            diagnostics.emit("  ✓ Ready")
+            diagnostics.emit("")
+            diagnostics.emit("Orichum is ready.")
+            return 0
 
         project = _setup_project_path(requested_project)
         context_reused = _project_context_mapped(config, project)
@@ -3031,49 +3161,76 @@ def _materialize_launch_policy(
         raise CliError("session launch policy could not be prepared") from error
     route = context.get("route") if isinstance(context, dict) else None
     if not isinstance(route, dict):
-        raise CliError("session project binding is unavailable")
-    project_root = route.get("contextRootReal")
+        raise CliError("session binding is unavailable")
+    scope = route.get("scope", "context")
     atlassian_configured = route.get("atlassianConfigured")
     jira_profile = route.get("jiraProfile")
     github_account = route.get("githubAccount")
     project_config_source = route.get("projectConfigSource")
-    if (
-        not isinstance(project_root, str)
-        or not project_root
-        or (
-            type(atlassian_configured) is not bool
-        )
-        or (
-            jira_profile is not None
-            and (not isinstance(jira_profile, str) or not jira_profile)
-        )
-        or (
-            github_account is not None
-            and (not isinstance(github_account, str) or not github_account)
-        )
-        or (
-            project_config_source is not None
-            and (
-                not isinstance(project_config_source, str)
-                or not project_config_source
+    if scope == "normal":
+        workspace_root = context.get("launchDirReal")
+        if (
+            not isinstance(workspace_root, str)
+            or not workspace_root
+            or atlassian_configured is not False
+            or jira_profile is not None
+            or github_account is not None
+            or project_config_source is not None
+        ):
+            raise CliError("normal session binding is invalid")
+        scope_label = "User normal scope"
+        config_label = "none"
+    elif scope == "context":
+        workspace_root = route.get("contextRootReal")
+        if (
+            not isinstance(workspace_root, str)
+            or not workspace_root
+            or type(atlassian_configured) is not bool
+            or (
+                jira_profile is not None
+                and (not isinstance(jira_profile, str) or not jira_profile)
             )
+            or (
+                github_account is not None
+                and (not isinstance(github_account, str) or not github_account)
+            )
+            or (
+                project_config_source is not None
+                and (
+                    not isinstance(project_config_source, str)
+                    or not project_config_source
+                )
+            )
+        ):
+            raise CliError("session project binding is invalid")
+        scope_label = "Project context"
+        config_label = (
+            "none"
+            if project_config_source is None
+            else json.dumps(project_config_source)
         )
-    ):
-        raise CliError("session project binding is invalid")
+    else:
+        raise CliError("session binding scope is invalid")
 
     def shown(value: str | None) -> str:
         return "none" if value is None else json.dumps(value)
 
+    leanctx_binding = (
+        "- LeanCTX project memory follows the verified project root.\n\n"
+        if scope == "context"
+        else "- LeanCTX follows the verified workspace root.\n\n"
+    )
     binding = (
         "\n\n## Verified Orichum session bindings\n\n"
         "These values are frozen and authoritative for this physical session:\n\n"
-        f"- Project context root: {json.dumps(project_root)}\n"
+        f"- Scope: {scope_label}\n"
+        f"- Workspace root: {json.dumps(workspace_root)}\n"
         f"- Jira configured: {'yes' if atlassian_configured else 'no'}\n"
         f"- Jira profile: {shown(jira_profile)}\n"
         f"- GitHub account: {shown(github_account)}\n"
-        f"- Repository configuration file: {shown(project_config_source)}\n"
-        "- LeanCTX project memory follows the verified project root.\n\n"
-        "When Jira is configured, the `atlassian` MCP server is already "
+        f"- Repository configuration file: {config_label}\n"
+        + leanctx_binding
+        + "When Jira is configured, the `atlassian` MCP server is already "
         "bound to this physical session and project. Diagnose empty or "
         "rejected Jira results against that project's credentials and "
         "upstream permissions.\n"
@@ -3430,6 +3587,11 @@ def build_parser() -> argparse.ArgumentParser:
             "Configure a provider account, reconcile the installed runtime, "
             "prepare a model stack, map a project, and verify readiness."
         ),
+    )
+    setup.add_argument(
+        "--user",
+        action="store_true",
+        help="configure the user normal scope for non-project work",
     )
     setup.add_argument(
         "--verbose",
@@ -4092,12 +4254,22 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             if not re.fullmatch(r"oc-s-[a-f0-9]{16}", session_id):
                 raise CliError("logical session ID is invalid")
+        if (
+            parsed.command == "leanctx"
+            and parsed.leanctx_command == "economics"
+            and not (parsed.session or os.environ.get("ORICHUM_SESSION_ID"))
+        ):
+            raise CliError(
+                "a logical session ID is required; run "
+                "orichum leanctx economics --session <session-id>"
+            )
         paths, config = _load()
         if parsed.command == "setup":
             return _setup(
                 paths,
                 config,
                 parsed.project,
+                normal_scope=parsed.user,
                 verbose=parsed.verbose,
             )
         if parsed.command == "configure":

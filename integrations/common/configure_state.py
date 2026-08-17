@@ -591,8 +591,11 @@ def load_configuration_snapshot(
         stack_snapshot.stacks,
     )
     route = resolved.get("route")
-    if not isinstance(route, Mapping):
-        raise RoutingError("the selected directory has no configured project")
+    if (
+        not isinstance(route, Mapping)
+        or route.get("scope") == "normal"
+    ):
+        raise RoutingError("configuration requires a project context")
     pools = route.get("accountPools")
     if not isinstance(pools, list) or not all(isinstance(pool, str) for pool in pools):
         raise RoutingError("project account availability is invalid")

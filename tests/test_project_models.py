@@ -475,5 +475,28 @@ class ProjectModelsTests(unittest.TestCase):
                     discover_project_models(self.child, self.root, self.stacks)
 
 
+    def test_normal_scope_ignores_repository_configuration(self) -> None:
+        path = _write(self.child, _document())
+        projects = {
+            "schemaVersion": 2,
+            "normal": {
+                "modelStack": "default",
+                "accountPools": ["shared"],
+            },
+            "contexts": [],
+        }
+
+        resolved, loaded = resolve_project_context(
+            projects,
+            self.child,
+            self.profiles,
+            self.stacks,
+        )
+
+        self.assertIsNone(loaded)
+        self.assertEqual(resolved["route"]["scope"], "normal")
+        self.assertNotIn("projectConfigSource", resolved["route"])
+        self.assertTrue(path.exists())
+
 if __name__ == "__main__":
     unittest.main()

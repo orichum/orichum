@@ -288,7 +288,11 @@ def _verified_run(
     project = (
         repository
         if isinstance(repository, str) and repository
-        else route.get("contextRootReal") if isinstance(route, dict) else None
+        else route.get("contextRootReal")
+        if isinstance(route, dict) and route.get("scope") in {None, "context"}
+        else context.get("launchDirReal")
+        if isinstance(route, dict) and route.get("scope") == "normal"
+        else None
     )
     if not isinstance(project, str) or not project:
         raise LeanctxMonitorError("session project context is invalid")

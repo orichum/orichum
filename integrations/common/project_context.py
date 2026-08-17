@@ -170,6 +170,33 @@ def _structural_existing_ancestor_path(
     return canonical
 
 
+def _normal_scope(
+    value: object,
+    *,
+    stacks: Optional[dict] = None,
+    account_pools: Optional[set[str]] = None,
+) -> dict | None:
+    if value is None:
+        return None
+    normal = _require_exact_keys(
+        value,
+        {"modelStack", "accountPools"},
+        "normal scope",
+    )
+    model_stack = _model_stack(normal["modelStack"], stacks)
+    pools = normal["accountPools"]
+    if (
+        not isinstance(pools, list)
+        or not pools
+        or any(not isinstance(pool, str) or not pool.strip() for pool in pools)
+        or len(pools) != len(set(pools))
+    ):
+        raise ContextError("normal accountPools must be a non-empty unique list")
+    if account_pools is not None and any(pool not in account_pools for pool in pools):
+        raise ContextError("normal accountPools names an unknown pool")
+    return {"modelStack": model_stack, "accountPools": list(pools)}
+
+
 def validate_config_document(
     raw: object,
     home: Path,
@@ -180,13 +207,23 @@ def validate_config_document(
     if not isinstance(raw, dict):
         raise ContextError("configuration must be an object")
     focused = "schemaVersion" in raw
-    expected = {"schemaVersion", "contexts"} if focused else {"contexts"}
+    if focused:
+        schema_version = raw.get("schemaVersion")
+        expected = (
+            {"schemaVersion", "contexts"}
+            if schema_version == 1
+            else {"schemaVersion", "normal", "contexts"}
+        )
+    else:
+        expected = {"contexts"}
     config = _require_exact_keys(raw, expected, "configuration")
     if focused and (
         type(config["schemaVersion"]) is not int
-        or config["schemaVersion"] != 1
+        or config["schemaVersion"] not in {1, 2}
     ):
-        raise ContextError("schemaVersion must be exactly 1")
+        raise ContextError("schemaVersion must be exactly 1 or 2")
+    if config.get("schemaVersion") == 2:
+        _normal_scope(config["normal"], stacks=stacks, account_pools=account_pools)
     raw_contexts = config["contexts"]
     if not isinstance(raw_contexts, list):
         raise ContextError("contexts must be a list")
@@ -329,15 +366,31 @@ def resolve_control_plane_context(
 ) -> dict:
     """Resolve the validated Orichum project document without a temp file."""
     home = Path.home() if home is None else Path(home)
-    document = _require_exact_keys(
-        project_document, {"schemaVersion", "contexts"}, "projects"
-    )
+    if not isinstance(project_document, dict):
+        raise ContextError("projects document has invalid schema")
+    schema_version = project_document.get("schemaVersion")
+    if schema_version is None:
+        document = _require_exact_keys(
+            project_document, {"contexts"}, "projects"
+        )
+    else:
+        expected = (
+            {"schemaVersion", "contexts"}
+            if schema_version == 1
+            else {"schemaVersion", "normal", "contexts"}
+        )
+        document = _require_exact_keys(project_document, expected, "projects")
     if (
-        type(document["schemaVersion"]) is not int
-        or document["schemaVersion"] != 1
+        schema_version not in {None, 1, 2}
+        or (schema_version is not None and type(schema_version) is not int)
         or not isinstance(document["contexts"], list)
     ):
         raise ContextError("projects document has invalid schema")
+    normal = (
+        _normal_scope(document["normal"])
+        if schema_version == 2
+        else None
+    )
     normalized = []
     pools_by_root: dict[str, tuple[str, ...]] = {}
     canonical_roots: set[Path] = set()
@@ -395,12 +448,22 @@ def resolve_control_plane_context(
     resolved = resolve_context({"contexts": normalized}, launch_dir)
     route = resolved.get("route")
     if isinstance(route, dict):
+        route["scope"] = "context"
         route["accountPools"] = list(pools_by_root[route["contextRootReal"]])
         route["githubAccount"] = next(
             context["githubAccount"]
             for context in normalized
             if str(context["root"]) == route["contextRootReal"]
         )
+    elif normal is not None:
+        resolved["route"] = {
+            "id": "normal",
+            "scope": "normal",
+            "atlassianConfigured": False,
+            "modelStack": normal["modelStack"],
+            "accountPools": normal["accountPools"],
+            "githubAccount": None,
+        }
     return resolved
 
 
@@ -833,6 +896,40 @@ def _context_lock(config_path: Path):
         yield
 
 
+def configure_normal_scope(
+    config_path: Path,
+    *,
+    model_stack: str | None,
+    account_pools: Collection[str],
+    known_stacks: Collection[str],
+    known_pools: Collection[str],
+) -> None:
+    if model_stack is not None and model_stack not in known_stacks:
+        raise ContextError("model stack is unknown")
+    pools = list(dict.fromkeys(account_pools))
+    if not pools or any(pool not in known_pools for pool in pools):
+        raise ContextError("normal accountPools are invalid")
+    config_path = Path(config_path)
+    home = Path.home()
+    with _context_lock(config_path):
+        document = _read_context_document(config_path, home)
+        candidate = {
+            "schemaVersion": 2,
+            "normal": {
+                "modelStack": model_stack,
+                "accountPools": pools,
+            },
+            "contexts": list(document["contexts"]),
+        }
+        validate_config_document(
+            candidate,
+            home,
+            dict.fromkeys(known_stacks),
+            set(known_pools),
+        )
+        _write_context_document(config_path, candidate)
+
+
 def assign_stack_to_context(
     config_path: Path,
     launch_dir: Path,
@@ -849,10 +946,11 @@ def assign_stack_to_context(
             document, launch_dir, home=home
         )
         route = resolved.get("route")
-        if not isinstance(route, dict):
-            raise ContextError(
-                "current directory has no project context"
-            )
+        if (
+            not isinstance(route, dict)
+            or route.get("scope") != "context"
+        ):
+            raise ContextError("current directory has no project context")
         matched = Path(route["contextRootReal"])
         for context in document["contexts"]:
             root = _context_root(
@@ -884,10 +982,11 @@ def configure_project_atlassian(
             document, launch_dir, home=home
         )
         route = resolved.get("route")
-        if not isinstance(route, dict):
-            raise ContextError(
-                "current directory has no project context"
-            )
+        if (
+            not isinstance(route, dict)
+            or route.get("scope") != "context"
+        ):
+            raise ContextError("current directory has no project context")
         matched = Path(route["contextRootReal"])
         for context in document["contexts"]:
             root = _context_root(
@@ -985,7 +1084,12 @@ def _build_add_candidate(
             requested.append("shared")
         context["accountPools"] = list(dict.fromkeys(requested))
     candidate = {
-        **({"schemaVersion": 1} if "schemaVersion" in document else {}),
+        **(
+            {"schemaVersion": document["schemaVersion"]}
+            if "schemaVersion" in document
+            else {}
+        ),
+        **({"normal": document["normal"]} if "normal" in document else {}),
         "contexts": [*document["contexts"], context],
     }
     return candidate, context
@@ -1323,7 +1427,12 @@ def context_main(arguments: Optional[list[str]] = None) -> int:
                     except AtlassianError as error:
                         raise ContextError(str(error)) from error
                 candidate = {
-                    "schemaVersion": 1,
+                    **({"schemaVersion": document["schemaVersion"]} if "schemaVersion" in document else {}),
+                    **(
+                        {"normal": document["normal"]}
+                        if "normal" in document
+                        else {}
+                    ),
                     "contexts": list(contexts),
                 }
                 replacement = dict(contexts[index])
@@ -1372,9 +1481,10 @@ def context_main(arguments: Optional[list[str]] = None) -> int:
                         dict.fromkeys(parsed.pool)
                     )
                 candidate = {
+                    **({"schemaVersion": document["schemaVersion"]} if "schemaVersion" in document else {}),
                     **(
-                        {"schemaVersion": 1}
-                        if "schemaVersion" in document
+                        {"normal": document["normal"]}
+                        if "normal" in document
                         else {}
                     ),
                     "contexts": list(contexts),
@@ -1396,9 +1506,10 @@ def context_main(arguments: Optional[list[str]] = None) -> int:
                 if confirmation != "REMOVE":
                     raise ContextError("remove requires confirmation")
             candidate = {
+                **({"schemaVersion": document["schemaVersion"]} if "schemaVersion" in document else {}),
                 **(
-                    {"schemaVersion": 1}
-                    if "schemaVersion" in document
+                    {"normal": document["normal"]}
+                    if "normal" in document
                     else {}
                 ),
                 "contexts": list(contexts),

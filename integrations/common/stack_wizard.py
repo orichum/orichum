@@ -30,6 +30,7 @@ from .orichum_config import (
 )
 from .project_context import (
     assign_stack_to_context,
+    configure_normal_scope,
     control_plane_transaction,
     resolve_control_plane_context,
 )
@@ -1678,8 +1679,17 @@ def create_recommended_stack(
             validate_account_bindings(
                 accounts, current.documents["providers"]
             )
-            context = _matched_context(
+            resolved = resolve_control_plane_context(
                 current.documents["projects"], Path(launch_dir)
+            )
+            route = resolved.get("route")
+            if not isinstance(route, Mapping):
+                raise RoutingError("current directory has no configured scope")
+            normal_scope = route.get("scope") == "normal"
+            context = (
+                route
+                if normal_scope
+                else _matched_context(current.documents["projects"], Path(launch_dir))
             )
             pools = context.get("accountPools")
             if not isinstance(pools, list) or not all(
@@ -1719,12 +1729,24 @@ def create_recommended_stack(
             )
             if updated is not snapshot.stacks:
                 save_stack(snapshot, updated, snapshot.bindings)
-            assign_stack_to_context(
-                config_root / "projects.json",
-                Path(launch_dir),
-                stack_name,
-                updated.stacks,
-            )
+            if normal_scope:
+                raw_pools = current.documents["providers"].get("accountPools")
+                if not isinstance(raw_pools, Mapping):
+                    raise RoutingError("provider account pools are invalid")
+                configure_normal_scope(
+                    config_root / "projects.json",
+                    model_stack=stack_name,
+                    account_pools=pools,
+                    known_stacks=updated.stacks,
+                    known_pools=raw_pools,
+                )
+            else:
+                assign_stack_to_context(
+                    config_root / "projects.json",
+                    Path(launch_dir),
+                    stack_name,
+                    updated.stacks,
+                )
     return stack_name
 
 

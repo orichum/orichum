@@ -69,16 +69,18 @@ session MCP file contains only the project root and optional profile alias.
 
 ## Launch sequence
 
-1. Resolve the configured containing project context.
-2. Discover and strictly validate the nearest optional `.orichum/config.json`
-   within that context, with legacy model-only `models.json` compatibility.
-3. Resolve its service account names against private Jira profiles and existing
-   GitHub authentication; explicit `null` disables a service.
+1. Resolve the configured containing project context, or the explicitly enabled
+   user normal scope when no context matches.
+2. For a project context, discover and strictly validate the nearest optional
+   `.orichum/config.json` within that context, with legacy model-only
+   `models.json` compatibility. The normal scope never performs this discovery.
+3. For a project context, resolve service account names against private Jira
+   profiles and existing GitHub authentication; explicit `null` disables a
+   service. The normal scope has no project-service bindings.
 4. Validate machine configuration and discover live provider/model routes.
-5. Select eligible provider accounts and build the repository model mapping as
-   an in-memory stack.
-6. Freeze the logical model route and the physical project's service selectors
-   and integrity digest.
+5. Select eligible provider accounts and build the in-memory model mapping.
+6. Freeze the logical model route, workspace root, and applicable service
+   selectors and integrity digest.
 7. Materialize the controller plugin, strict MCP file, private LeanCTX contract,
    and optional external-tool identities.
 8. Start and health-check the session's Claudex translator.

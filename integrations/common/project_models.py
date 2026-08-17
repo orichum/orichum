@@ -588,7 +588,10 @@ def resolve_project_context(
 ) -> tuple[dict[str, object], ProjectModels | None]:
     resolved = resolve_control_plane_context(project_document, launch_dir)
     route = resolved.get("route")
-    if not isinstance(route, Mapping):
+    if (
+        not isinstance(route, Mapping)
+        or route.get("scope") != "context"
+    ):
         return resolved, None
     project_models = discover_project_models(
         Path(str(resolved["launchDirReal"])),

@@ -269,6 +269,24 @@ class OrichumConfigTests(unittest.TestCase):
             )
         )
 
+    def test_validates_a_routable_normal_scope(self) -> None:
+        self.documents["projects"] = {
+            "schemaVersion": 2,
+            "normal": {
+                "modelStack": "balanced",
+                "accountPools": ["shared"],
+            },
+            "contexts": [],
+        }
+        self.write_documents()
+
+        self.load()
+        self.assert_invalid(
+            lambda documents: documents["projects"]["normal"].update(
+                {"accountPools": ["missing"]}
+            )
+        )
+
     def test_rejects_provider_family_mismatch_and_unrouted_model_family(self) -> None:
         self.assert_invalid(
             lambda documents: documents["providers"]["providers"]["openai"][

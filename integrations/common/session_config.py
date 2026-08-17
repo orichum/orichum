@@ -234,7 +234,11 @@ def _session_mcp_payload(
     servers: dict[str, object] = {}
     route = context.get("route")
 
-    if isinstance(route, dict) and data_root is not None:
+    if (
+        isinstance(route, dict)
+        and route.get("scope") in {None, "context"}
+        and data_root is not None
+    ):
         project_root = route.get("contextRootReal")
         if (
             route.get("atlassianConfigured") is True
@@ -377,10 +381,14 @@ def _leanctx_project_root(context: dict[str, object]) -> Path | None:
     if isinstance(repository, str) and repository:
         return Path(repository)
     route = context.get("route")
-    project = (
-        route.get("contextRootReal") if isinstance(route, dict) else None
-    )
-    return Path(project) if isinstance(project, str) and project else None
+    project = route.get("contextRootReal") if isinstance(route, dict) else None
+    if isinstance(project, str) and project:
+        return Path(project)
+    if isinstance(route, dict) and route.get("scope") == "normal":
+        launch = context.get("launchDirReal")
+        if isinstance(launch, str) and launch:
+            return Path(launch)
+    return None
 
 
 def _materialize_leanctx(

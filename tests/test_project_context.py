@@ -21,6 +21,7 @@ from integrations.common import project_context
 from integrations.common.project_context import (
     ContextError,
     assign_stack_to_context,
+    configure_normal_scope,
     control_plane_transaction,
     load_config,
     resolve_context,
@@ -259,6 +260,33 @@ class StackContextAssignmentTests(unittest.TestCase):
         self.assertEqual(
             list(self.root.glob(f".{self.config_path.name}.*")), []
         )
+
+    def test_normal_scope_configuration_preserves_project_contexts(self):
+        document = {
+            "schemaVersion": 2,
+            "normal": None,
+            "contexts": self.document["contexts"],
+        }
+        self.write_document(document)
+
+        configure_normal_scope(
+            self.config_path,
+            model_stack="heavy",
+            account_pools=("shared",),
+            known_stacks=("balanced", "heavy"),
+            known_pools=("shared",),
+        )
+
+        saved = json.loads(self.config_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            saved["normal"],
+            {
+                "modelStack": "heavy",
+                "accountPools": ["shared"],
+            },
+        )
+        self.assertEqual(saved["contexts"], self.document["contexts"])
+        self.assertEqual(stat.S_IMODE(self.config_path.stat().st_mode), 0o640)
 
     def test_assignment_uses_shared_control_plane_transaction(self):
         attempted = threading.Event()

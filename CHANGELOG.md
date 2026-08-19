@@ -11,6 +11,8 @@ All notable Orichum changes are recorded here.
 - GPT 5.6 Sol routes now remove unsupported `prompt_cache_retention` before
   forwarding requests, including the tool-optimization retry, while preserving
   the option for other models.
+- GPT controller sessions now use the supported 1,000,000-token context window
+  and compact at the standard 82% threshold.
 
 ## 0.1.0-rc.16 - 2026-08-14
 

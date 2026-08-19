@@ -55,6 +55,7 @@ class OrichumCliTests(unittest.TestCase):
             "ORICHUM_CONFIG_HOME": str(REPOSITORY_ROOT / "config"),
             "ORICHUM_DATA_HOME": str(self.root / "data"),
             "ORICHUM_CACHE_HOME": str(self.root / "cache"),
+            "ORICHUM_SESSION_ID": "",
         }
 
     def run_cli(self, *arguments: str) -> tuple[int, str, str]:

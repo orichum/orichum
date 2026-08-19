@@ -591,10 +591,7 @@ def load_configuration_snapshot(
         stack_snapshot.stacks,
     )
     route = resolved.get("route")
-    if (
-        not isinstance(route, Mapping)
-        or route.get("scope") == "normal"
-    ):
+    if not isinstance(route, Mapping) or route.get("scope") == "normal":
         raise RoutingError("configuration requires a project context")
     pools = route.get("accountPools")
     if not isinstance(pools, list) or not all(isinstance(pool, str) for pool in pools):

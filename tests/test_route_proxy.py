@@ -810,6 +810,7 @@ class RouteProxyTests(unittest.TestCase):
         document = {
             "model": "oc-r-0000000000000001/future-model",
             "messages": [{"role": "user", "content": "test"}],
+            "prompt_cache_retention": "24h",
             "tools": [
                 client_tool("mcp__leanctx__ctx_shell"),
                 *[client_tool(f"tool_{index}") for index in range(11)],
@@ -820,6 +821,27 @@ class RouteProxyTests(unittest.TestCase):
                 status, _ = proxy.post_document(document)
         self.assertEqual(status, 200)
         self.assertEqual(upstream.documents, [document])
+
+    def test_gpt_prompt_cache_retention_is_stripped_before_fallback(self) -> None:
+        document = {
+            "model": self.primary,
+            "messages": [],
+            "prompt_cache_retention": "24h",
+            "tools": [
+                client_tool("mcp__leanctx__ctx_shell"),
+                *[client_tool(f"tool_{index}") for index in range(11)],
+            ],
+        }
+        with RecordingUpstream(
+            [(400, b"unsupported"), (200, b"ok")]
+        ) as upstream:
+            with ProxyHarness(upstream.port, {}) as proxy:
+                status, body = proxy.post_document(document)
+        self.assertEqual((status, body), (200, b"ok"))
+        self.assertEqual(len(upstream.documents), 2)
+        self.assertIn("defer_loading", upstream.documents[0]["tools"][1])
+        for forwarded in upstream.documents:
+            self.assertNotIn("prompt_cache_retention", forwarded)
 
     def test_400_from_transformed_request_retries_original_once(self) -> None:
         document = {

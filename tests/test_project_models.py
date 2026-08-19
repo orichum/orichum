@@ -474,7 +474,6 @@ class ProjectModelsTests(unittest.TestCase):
                 with self.assertRaisesRegex(ProjectModelsError, message):
                     discover_project_models(self.child, self.root, self.stacks)
 
-
     def test_normal_scope_ignores_repository_configuration(self) -> None:
         path = _write(self.child, _document())
         projects = {
@@ -497,6 +496,7 @@ class ProjectModelsTests(unittest.TestCase):
         self.assertEqual(resolved["route"]["scope"], "normal")
         self.assertNotIn("projectConfigSource", resolved["route"])
         self.assertTrue(path.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,6 +4,14 @@ All notable Orichum changes are recorded here.
 
 ## Unreleased
 
+## 0.1.0-rc.17 - 2026-08-19
+
+### Fixed
+
+- GPT 5.6 Sol routes now remove unsupported `prompt_cache_retention` before
+  forwarding requests, including the tool-optimization retry, while preserving
+  the option for other models.
+
 ## 0.1.0-rc.16 - 2026-08-14
 
 ### Changed

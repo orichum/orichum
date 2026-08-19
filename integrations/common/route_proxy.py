@@ -350,6 +350,24 @@ def _request_model(body: bytes) -> str | None:
     return model if isinstance(model, str) else None
 
 
+def _strip_unsupported_prompt_cache_retention(body: bytes) -> bytes:
+    try:
+        document = json.loads(body)
+    except (UnicodeError, json.JSONDecodeError, RecursionError):
+        return body
+    model = document.get("model") if isinstance(document, dict) else None
+    if (
+        not isinstance(model, str)
+        or model.rsplit("/", 1)[-1] != "gpt-5.6-sol"
+        or "prompt_cache_retention" not in document
+    ):
+        return body
+    document.pop("prompt_cache_retention")
+    return json.dumps(
+        document, separators=(",", ":"), ensure_ascii=True
+    ).encode("utf-8")
+
+
 def _replace_model(body: bytes, expected: str, replacement: str) -> bytes:
     try:
         document = json.loads(body)
@@ -507,6 +525,7 @@ class RouteProxyHandler(BaseHTTPRequestHandler):
         original: bytes,
         resident_names: Collection[str],
     ) -> tuple[http.client.HTTPConnection, http.client.HTTPResponse]:
+        original = _strip_unsupported_prompt_cache_retention(original)
         candidate = transform_request(original, resident_names)
         connection, response = self._upstream(candidate.body)
         if candidate.transformed and response.status in {400, 422}:

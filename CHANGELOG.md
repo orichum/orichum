@@ -4,6 +4,13 @@ All notable Orichum changes are recorded here.
 
 ## Unreleased
 
+## 0.1.0-rc.18 - 2026-08-19
+
+### Fixed
+
+- CLI tests now isolate their default session environment so active Orichum
+  sessions cannot change missing-session test behavior.
+
 ## 0.1.0-rc.17 - 2026-08-19
 
 ### Fixed

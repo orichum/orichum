@@ -3369,8 +3369,8 @@ def _session_environment(
     if prepared.logical.controller.primary.family == "gpt":
         environment.update(
             {
-                "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "400000",
-                "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "60",
+                "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1000000",
+                "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "82",
             }
         )
     for name in ("XDG_CACHE_HOME", "XDG_RUNTIME_DIR"):

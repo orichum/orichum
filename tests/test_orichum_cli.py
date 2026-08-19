@@ -4829,7 +4829,7 @@ class OrichumCliTests(unittest.TestCase):
             "maxSubagentsPerSession": 24,
         }
         cases = (
-            ("gpt", "400000", "60"),
+            ("gpt", "1000000", "82"),
             ("claude", "1000000", "82"),
         )
 

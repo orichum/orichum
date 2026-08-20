@@ -4,6 +4,8 @@ All notable Orichum changes are recorded here.
 
 ## Unreleased
 
+## 0.1.0-rc.20 - 2026-08-20
+
 ### Fixed
 
 - Proxied sessions no longer force a 1,000,000-token context window or delayed

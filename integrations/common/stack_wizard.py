@@ -100,6 +100,12 @@ _RECOMMENDED_MODELS = {
         "claude-opus-5",
         "gpt-5.6-terra",
     ),
+    "planning-advisor": (
+        "claude-opus-5",
+        "claude-opus-4-6-thinking",
+        "gpt-5.6-sol",
+        "claude-sonnet-5",
+    ),
 }
 
 
@@ -592,7 +598,12 @@ class StackWizard:
     ) -> tuple[_Draft, bool]:
         ordered_roles = (
             "architecture-advisor",
-            *(role for role in ROLES if role != "architecture-advisor"),
+            "planning-advisor",
+            *(
+                role
+                for role in ROLES
+                if role not in {"architecture-advisor", "planning-advisor"}
+            ),
         )
         selected = 0
         while True:

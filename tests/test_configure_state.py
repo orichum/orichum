@@ -23,6 +23,7 @@ from integrations.common.configure_state import (
     selections_for_stack,
     stack_is_live_compatible,
 )
+from integrations.common.model_routing import ROLES
 from integrations.common.orichum_config import ResolvedConfig
 from integrations.common.stack_bindings import StackBindings
 from integrations.common.stack_catalog import LiveCatalog, LiveModelChoice
@@ -98,16 +99,7 @@ def _snapshot() -> ConfigurationSnapshot:
                                 "providers": ["openai"],
                             }
                         ]
-                        for index, role in enumerate(
-                            (
-                                "repository-explorer",
-                                "repository-verifier",
-                                "correctness-critic",
-                                "architecture-advisor",
-                                "implementation-worker",
-                            ),
-                            start=2,
-                        )
+                        for index, role in enumerate(ROLES, start=2)
                     },
                 }
             },
@@ -144,17 +136,7 @@ def _snapshot() -> ConfigurationSnapshot:
         stacks=stacks,
         bindings=StackBindings({}),
         assignments=MappingProxyType(
-            {
-                role: selection
-                for role in (
-                    "controller",
-                    "repository-explorer",
-                    "repository-verifier",
-                    "correctness-critic",
-                    "architecture-advisor",
-                    "implementation-worker",
-                )
-            }
+            {role: selection for role in ("controller", *ROLES)}
         ),
     )
 
@@ -320,16 +302,7 @@ class ConfigureStateTests(unittest.TestCase):
 
         self.assertEqual(
             drift,
-            CatalogueDrift(
-                invalid_roles=(
-                    "controller",
-                    "repository-explorer",
-                    "repository-verifier",
-                    "correctness-critic",
-                    "architecture-advisor",
-                    "implementation-worker",
-                )
-            ),
+            CatalogueDrift(invalid_roles=("controller", *ROLES)),
         )
 
     def test_snapshot_repr_does_not_expose_internal_account_ids(self) -> None:

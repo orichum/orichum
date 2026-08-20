@@ -175,13 +175,23 @@ else
        (.stack | type == "string" and length > 0) and
        (.controller | model) and
        (.agents | type == "object") and
-       (.agents | keys) == [
-         "architecture-advisor",
-         "correctness-critic",
-         "implementation-worker",
-         "repository-explorer",
-         "repository-verifier"
-       ] and
+       (
+         (.agents | keys) == [
+           "architecture-advisor",
+           "correctness-critic",
+           "implementation-worker",
+           "planning-advisor",
+           "repository-explorer",
+           "repository-verifier"
+         ] or
+         (.agents | keys) == [
+           "architecture-advisor",
+           "correctness-critic",
+           "implementation-worker",
+           "repository-explorer",
+           "repository-verifier"
+         ]
+       ) and
        (.agents | all(.[]; model)) |
        select(.) |
        $document.controller

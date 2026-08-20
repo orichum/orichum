@@ -19,7 +19,9 @@ ROLES: tuple[str, ...] = (
     "correctness-critic",
     "architecture-advisor",
     "implementation-worker",
+    "planning-advisor",
 )
+LEGACY_ROLES: tuple[str, ...] = ROLES[:-1]
 _STACK_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 _MODEL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,254}$")
 _AGENT_FILES = {role: f"agents/{role}.md" for role in ROLES}
@@ -56,6 +58,7 @@ class EffectiveStack:
     controller: str
     candidates: Mapping[str, tuple[str, ...]]
     agents: Mapping[str, str]
+    legacy_agents: bool = False
 
     def as_json(self) -> dict[str, object]:
         return {
@@ -116,9 +119,20 @@ def validate_routing_document(raw: object) -> dict[str, object]:
         controller = validate_model_id(
             stack["controller"], f"stack {name} controller"
         )
-        agents = _exact_object(
-            stack["agents"], set(ROLES), f"stack {name} agents"
-        )
+        agents = stack["agents"]
+        legacy_agents = isinstance(agents, dict) and set(agents) == set(LEGACY_ROLES)
+        if not isinstance(agents, dict) or (
+            set(agents) != set(LEGACY_ROLES)
+            and set(agents) != set(ROLES)
+        ):
+            raise RoutingError(
+                f"stack {name} agents must contain exactly {sorted(set(ROLES))}"
+            )
+        if legacy_agents:
+            agents = {
+                **agents,
+                "planning-advisor": agents["architecture-advisor"],
+            }
         normalized_agents = {}
         for role in ROLES:
             values = agents[role]

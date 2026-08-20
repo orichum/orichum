@@ -894,6 +894,14 @@ class StackWizardTests(unittest.TestCase):
         architecture["id"] = stack_wizard.candidate_id(
             "balanced", "architecture-advisor", 0, "claude-opus"
         )
+        planning = document["stacks"]["balanced"]["agents"][
+            "planning-advisor"
+        ][0]
+        planning["model"] = "claude-opus"
+        planning["providers"] = ["anthropic", "antigravity"]
+        planning["id"] = stack_wizard.candidate_id(
+            "balanced", "planning-advisor", 0, "claude-opus"
+        )
         stacks = normalize_model_stacks(document)
         snapshot = StackSnapshot(stacks, StackBindings({}), "0" * 64, None)
         io_adapter = ScriptedIO(

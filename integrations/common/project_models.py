@@ -21,7 +21,7 @@ from .jira_profiles import (
     load_jira_profiles,
     validate_jira_profile,
 )
-from .model_routing import ROLES, RoutingError, validate_model_id
+from .model_routing import LEGACY_ROLES, ROLES, RoutingError, validate_model_id
 from .project_context import resolve_control_plane_context
 from .stack_definition import (
     NormalizedStacks,
@@ -210,8 +210,13 @@ def _parse_configuration(
     if type(document["schemaVersion"]) is not int or document["schemaVersion"] != 1:
         raise _error(path, "schemaVersion must be exactly 1")
     agents = document["agents"]
-    if not isinstance(agents, dict) or set(agents) != set(ROLES):
+    legacy_agents = isinstance(agents, dict) and set(agents) == set(LEGACY_ROLES)
+    if not isinstance(agents, dict) or (
+        set(agents) != set(LEGACY_ROLES) and set(agents) != set(ROLES)
+    ):
         raise _error(path, f"agents must contain exactly {', '.join(ROLES)}")
+    if legacy_agents:
+        agents = {**agents, "planning-advisor": agents["architecture-advisor"]}
     raw_assignments = {
         "controller": document["controller"],
         **{role: agents[role] for role in ROLES},

@@ -4,6 +4,13 @@ All notable Orichum changes are recorded here.
 
 ## Unreleased
 
+## 0.1.0-rc.19 - 2026-08-20
+
+### Fixed
+
+- Planning subagents now use their own configured model and account route instead
+  of inheriting the controller route.
+
 ## 0.1.0-rc.18 - 2026-08-19
 
 ### Fixed

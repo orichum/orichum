@@ -153,7 +153,8 @@ A project can keep its simple choices in one visible `.orichum/config.json`:
     "repository-verifier": "gpt-5.6-terra",
     "correctness-critic": "gpt-5.6-terra",
     "architecture-advisor": "gpt-5.6-sol",
-    "implementation-worker": "gpt-5.6-sol"
+    "implementation-worker": "gpt-5.6-sol",
+    "planning-advisor": "gpt-5.6-sol"
   },
   "jiraProfile": null,
   "githubAccount": "alupao"

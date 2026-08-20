@@ -13,15 +13,11 @@ deny() {
   }'
 }
 
-route_agent() {
+rewrite_agent() {
   local target="$1"
-  if [[ -n "${isolation:-}" ]]; then
-    deny "Orichum read-only agents must run in the current checkout without worktree isolation"
-    return 0
-  fi
   jq -cn \
     --arg target "$target" \
-    --argjson original "$(jq -c '.tool_input' <<<"$input")" \
+    --argjson original "$(jq -c '.tool_input | del(.model)' <<<"$input")" \
     '{
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
@@ -32,6 +28,15 @@ route_agent() {
         updatedInput: ($original + {subagent_type: $target})
       }
     }'
+}
+
+route_agent() {
+  local target="$1"
+  if [[ -n "${isolation:-}" ]]; then
+    deny "Orichum read-only agents must run in the current checkout without worktree isolation"
+    return 0
+  fi
+  rewrite_agent "$target"
 }
 
 if ! jq -e 'type == "object"' >/dev/null 2>&1 <<<"$input"; then
@@ -57,13 +62,14 @@ case "$tool_name" in
       orichum-controller:correctness-critic|\
       orichum-controller:architecture-advisor|\
       orichum-controller:planning-advisor)
-        if [[ -n "$isolation" ]]; then
-          deny "Orichum read-only agents must run in the current checkout without worktree isolation"
-        fi
+        route_agent "$agent_type"
         ;;
       orichum-controller:implementation-worker)
-        [[ "$isolation" == "worktree" ]] || \
+        if [[ "$isolation" == "worktree" ]]; then
+          rewrite_agent "$agent_type"
+        else
           deny "Orichum implementation-worker must use worktree isolation"
+        fi
         ;;
       *)
         deny "Agent type is not in the Orichum controller allowlist: $agent_type. Do not retry a generic Agent type and do not escalate solely because this call was denied"

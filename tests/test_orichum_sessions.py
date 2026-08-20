@@ -330,6 +330,29 @@ class OrichumSessionTests(unittest.TestCase):
 
         self.assertEqual(loaded.leanctx_profile, "full")
 
+    def test_legacy_logical_session_inherits_architecture_route(self) -> None:
+        session = self.create()
+        binding = (
+            self.state
+            / "logical-sessions"
+            / session.id
+            / "binding.json"
+        )
+        document = json.loads(binding.read_text(encoding="utf-8"))
+        document["agents"].pop("planning-advisor")
+        binding.write_text(
+            json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
+        binding.chmod(0o600)
+
+        loaded = load_logical_session(self.state, session.id)
+
+        self.assertEqual(
+            loaded.agents["planning-advisor"],
+            loaded.agents["architecture-advisor"],
+        )
+
     def test_schema_v2_logical_session_rejects_unknown_leanctx_profile(
         self,
     ) -> None:

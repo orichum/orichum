@@ -23,6 +23,7 @@ _ROLES = (
     "correctness-critic",
     "architecture-advisor",
     "implementation-worker",
+    "planning-advisor",
 )
 
 
@@ -356,6 +357,23 @@ class ProjectModelsTests(unittest.TestCase):
         self.assertEqual(route["projectConfigSource"], str(path))
         self.assertEqual(len(route["projectConfigDigest"]), 64)
 
+    def test_legacy_project_configuration_inherits_architecture_model(self) -> None:
+        document = _document()
+        document["agents"].pop("planning-advisor")
+        _write(self.child, document)
+
+        loaded = discover_project_models(self.child, self.root, self.stacks)
+
+        assert loaded is not None
+        self.assertEqual(
+            loaded.assignments["planning-advisor"],
+            loaded.assignments["architecture-advisor"],
+        )
+        self.assertEqual(
+            loaded.stacks.stacks[loaded.stack_name].agents["planning-advisor"][0].model,
+            "claude-quality",
+        )
+
     def test_explicit_null_disables_machine_service_defaults(self) -> None:
         _write(self.child, _document(jira_profile=None, github_account=None))
 
@@ -435,7 +453,9 @@ class ProjectModelsTests(unittest.TestCase):
                     discover_project_models(self.child, self.root, self.stacks)
 
     def test_rejects_missing_roles_both_files_and_symlinks(self) -> None:
-        agents = {role: "gpt-fast" for role in _ROLES[:-1]}
+        agents = {
+            role: "gpt-fast" for role in _ROLES if role != "implementation-worker"
+        }
         _write(self.child, {**_document(), "agents": agents})
         with self.assertRaisesRegex(ProjectModelsError, "agents must contain"):
             discover_project_models(self.child, self.root, self.stacks)

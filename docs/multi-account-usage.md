@@ -72,8 +72,8 @@ saving.
 
 Claude models can be available through both `anthropic` and `antigravity`.
 Configure separate ordered stack candidates and choose each provider
-explicitly in the wizard. The shipped architecture-advisor role demonstrates
-this: Anthropic Opus 5 is the first startup candidate and Antigravity Opus 4.6
+explicitly in the wizard. The shipped architecture-advisor and planning-advisor roles demonstrate this:
+Anthropic Opus 5 is the first startup candidate and Antigravity Opus 4.6
 Thinking is the second.
 
 Candidate fallback happens only while binding a new session. Normal

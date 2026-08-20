@@ -37,6 +37,7 @@ ROLE_LABELS = MappingProxyType(
         "repository-verifier": "Repository verifier",
         "correctness-critic": "Correctness critic",
         "architecture-advisor": "Architecture advisor",
+        "planning-advisor": "Planning advisor",
         "implementation-worker": "Implementation worker",
     }
 )
@@ -45,7 +46,7 @@ WORK_TYPES = MappingProxyType(
         "Controller": ("controller",),
         "Research": ("repository-explorer", "repository-verifier"),
         "Review": ("correctness-critic",),
-        "Architecture": ("architecture-advisor",),
+        "Architecture": ("architecture-advisor", "planning-advisor"),
         "Implementation": ("implementation-worker",),
     }
 )

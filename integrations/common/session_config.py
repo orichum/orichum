@@ -24,6 +24,7 @@ from integrations.common.leanctx_contract import (
 )
 from integrations.common.model_routing import (
     EffectiveStack,
+    LEGACY_ROLES,
     ROLES,
     RoutingError,
     load_catalog,
@@ -920,14 +921,30 @@ def _parse_effective_models(data: bytes) -> EffectiveStack:
         controller = validate_model_id(
             document["controller"], "effective controller"
         )
-        candidates_raw = _exact_effective_object(
-            document["configuredCandidates"],
-            set(ROLES),
-            "effective configured candidates",
+        candidates_raw = document["configuredCandidates"]
+        agents_raw = document["agents"]
+        if not isinstance(candidates_raw, dict) or not isinstance(agents_raw, dict):
+            raise SessionError("effective agent mappings are invalid")
+        candidate_roles = set(candidates_raw)
+        agent_roles = set(agents_raw)
+        legacy_agents = (
+            candidate_roles == set(LEGACY_ROLES)
+            and agent_roles == set(LEGACY_ROLES)
         )
-        agents_raw = _exact_effective_object(
-            document["agents"], set(ROLES), "effective agents"
-        )
+        if (
+            candidate_roles != set(LEGACY_ROLES)
+            and candidate_roles != set(ROLES)
+        ) or agent_roles != candidate_roles:
+            raise SessionError("effective agent mappings are invalid")
+        if legacy_agents:
+            candidates_raw = {
+                **candidates_raw,
+                "planning-advisor": candidates_raw["architecture-advisor"],
+            }
+            agents_raw = {
+                **agents_raw,
+                "planning-advisor": agents_raw["architecture-advisor"],
+            }
         candidates: dict[str, tuple[str, ...]] = {}
         agents: dict[str, str] = {}
         for role in ROLES:
@@ -954,7 +971,11 @@ def _parse_effective_models(data: bytes) -> EffectiveStack:
             candidates[role] = role_candidates
             agents[role] = selected
         return EffectiveStack(
-            stack_name, controller, candidates, agents
+            stack_name,
+            controller,
+            candidates,
+            agents,
+            legacy_agents=legacy_agents,
         )
     except (json.JSONDecodeError, UnicodeDecodeError, RoutingError) as error:
         raise SessionError("effective model mapping is invalid") from error
@@ -1129,6 +1150,8 @@ def _verify_runtime_plugin(
     file_modes: dict[Path, int] = {}
     _verify_plugin_tree(plugin_dir, file_modes)
     for role in ROLES:
+        if effective.legacy_agents and role == "planning-advisor":
+            continue
         agents_dir = _require_directory(
             plugin_dir / "agents",
             parent=plugin_dir,

@@ -33,15 +33,18 @@ name, and GitHub account name in `.orichum/config.json`:
     "repository-verifier": "gpt-5.6-terra",
     "correctness-critic": "claude-sonnet-5",
     "architecture-advisor": "claude-opus-5",
-    "implementation-worker": "gpt-5.6-sol"
+    "implementation-worker": "gpt-5.6-sol",
+    "planning-advisor": "claude-opus-5"
   },
   "jiraProfile": "work",
   "githubAccount": "alupao"
 }
 ```
 
-The file must contain exactly those five agent roles. Every model is a logical
-ID already declared by private `model-stacks.json`. The Jira and GitHub fields
+New files must contain exactly those six agent roles. Exact legacy five-role
+files remain supported and route `planning-advisor` through their
+`architecture-advisor` assignment. Every model is a logical ID already declared
+by private `model-stacks.json`. The Jira and GitHub fields
 contain account names only and may be `null`. Providers, credentials, tokens,
 pools, fallback policy, candidate lists, commands, and tools cannot be stored
 in the repository file.
@@ -97,9 +100,9 @@ and optional Jira/GitHub account names. Editing either source does not mutate
 existing sessions; start a fresh session to use the changed definition.
 
 The standard roles are controller, repository explorer, repository verifier,
-correctness critic, architecture advisor, and implementation worker. Runtime
-policy decides whether specialists are needed; defining them does not cause
-automatic fan-out on every task.
+correctness critic, architecture advisor, implementation worker, and planning
+advisor. Runtime policy decides whether specialists are needed; defining them
+does not cause automatic fan-out on every task.
 
 ## Shipped balanced stack
 
@@ -111,6 +114,7 @@ automatic fan-out on every task.
 | Correctness critic | Claude Sonnet 5 through Anthropic | Strong routine review without paying Opus cost |
 | Architecture advisor | Claude Opus 5 through Anthropic, then Claude Opus 4.6 Thinking through Antigravity | Highest configured architecture model per provider |
 | Implementation worker | GPT-5.6 Sol | Strong execution inside an explicit ownership boundary |
+| Planning advisor | Claude Opus 5 through Anthropic, then Claude Opus 4.6 Thinking through Antigravity | Dedicated route for bounded implementation and operational planning |
 
 Ordered candidates are evaluated only while creating a session. For example,
 the architecture advisor uses Anthropic Opus 5 when that route is live and uses

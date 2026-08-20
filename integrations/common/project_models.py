@@ -212,8 +212,7 @@ def _parse_configuration(
     agents = document["agents"]
     legacy_agents = isinstance(agents, dict) and set(agents) == set(LEGACY_ROLES)
     if not isinstance(agents, dict) or (
-        set(agents) != set(LEGACY_ROLES)
-        and set(agents) != set(ROLES)
+        set(agents) != set(LEGACY_ROLES) and set(agents) != set(ROLES)
     ):
         raise _error(path, f"agents must contain exactly {', '.join(ROLES)}")
     if legacy_agents:

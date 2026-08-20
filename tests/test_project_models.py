@@ -370,9 +370,7 @@ class ProjectModelsTests(unittest.TestCase):
             loaded.assignments["architecture-advisor"],
         )
         self.assertEqual(
-            loaded.stacks.stacks[loaded.stack_name].agents[
-                "planning-advisor"
-            ][0].model,
+            loaded.stacks.stacks[loaded.stack_name].agents["planning-advisor"][0].model,
             "claude-quality",
         )
 
@@ -456,9 +454,7 @@ class ProjectModelsTests(unittest.TestCase):
 
     def test_rejects_missing_roles_both_files_and_symlinks(self) -> None:
         agents = {
-            role: "gpt-fast"
-            for role in _ROLES
-            if role != "implementation-worker"
+            role: "gpt-fast" for role in _ROLES if role != "implementation-worker"
         }
         _write(self.child, {**_document(), "agents": agents})
         with self.assertRaisesRegex(ProjectModelsError, "agents must contain"):

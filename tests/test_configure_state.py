@@ -23,10 +23,10 @@ from integrations.common.configure_state import (
     selections_for_stack,
     stack_is_live_compatible,
 )
+from integrations.common.model_routing import ROLES
 from integrations.common.orichum_config import ResolvedConfig
 from integrations.common.stack_bindings import StackBindings
 from integrations.common.stack_catalog import LiveCatalog, LiveModelChoice
-from integrations.common.model_routing import ROLES
 from integrations.common.stack_definition import (
     normalize_model_stacks,
     serialize_model_stacks,

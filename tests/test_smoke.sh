@@ -4,8 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../lib/workflow.sh
 source "$ROOT/lib/workflow.sh"
-[[ "$(<"$ROOT/VERSION")" == 0.1.0-rc.18 ]]
-rg -Fq '## 0.1.0-rc.18 - 2026-08-19' "$ROOT/CHANGELOG.md"
+[[ "$(<"$ROOT/VERSION")" == 0.1.0-rc.19 ]]
+rg -Fq '## 0.1.0-rc.19 - 2026-08-20' "$ROOT/CHANGELOG.md"
 rg -Fq "evidence-driven delegation: continuously assess the task's evolving scope," \
   "$ROOT/config/controller-policy.md"
 rg -Fq 'never controller model, provider, fixed keywords' \

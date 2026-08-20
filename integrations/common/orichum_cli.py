@@ -3316,6 +3316,8 @@ def _session_environment(
         "CLAUDE_CODE_SUBAGENT_MODEL",
         "CLAUDE_CODE_DISABLE_WORKFLOWS",
         "CLAUDE_CODE_EFFORT_LEVEL",
+        "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
+        "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
         "ANTHROPIC_CUSTOM_HEADERS",
     ):
         environment.pop(key, None)
@@ -3366,13 +3368,6 @@ def _session_environment(
             "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1",
         }
     )
-    if prepared.logical.controller.primary.family == "gpt":
-        environment.update(
-            {
-                "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1000000",
-                "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "82",
-            }
-        )
     for name in ("XDG_CACHE_HOME", "XDG_RUNTIME_DIR"):
         if name in os.environ:
             isolated = claudex_home / (

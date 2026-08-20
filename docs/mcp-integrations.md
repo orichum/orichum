@@ -42,7 +42,8 @@ For repository-owned selection, define credentials only in private
     "repository-verifier": "gpt-5.6-terra",
     "correctness-critic": "claude-sonnet-5",
     "architecture-advisor": "claude-opus-5",
-    "implementation-worker": "gpt-5.6-sol"
+    "implementation-worker": "gpt-5.6-sol",
+    "planning-advisor": "claude-opus-5"
   },
   "jiraProfile": "work",
   "githubAccount": "alupao"

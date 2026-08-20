@@ -279,7 +279,7 @@ class ConfigureWizardTests(unittest.TestCase):
         )
 
         models = next(rows for title, rows in io.sections if title == "Models")
-        self.assertEqual(len(models), 6)
+        self.assertEqual(len(models), 7)
         self.assertIn(
             "Changes apply to new sessions. Existing sessions are unchanged.",
             io.shown,
@@ -575,7 +575,7 @@ class ConfigureWizardTests(unittest.TestCase):
             {"claude-sonnet-5"},
         )
         reviewed = next(
-            rows for title, rows in io.sections if title == "Models" and len(rows) == 6
+            rows for title, rows in io.sections if title == "Models" and len(rows) == 7
         )
         self.assertEqual({model for _role, model in reviewed}, {"claude-sonnet-5"})
 
@@ -809,7 +809,7 @@ class ConfigureWizardTests(unittest.TestCase):
                 "gpt-5.6-sol",
                 "Review and apply changes",
                 "Apply changes",
-                *("claude-sonnet-5" for _ in range(6)),
+                *("claude-sonnet-5" for _ in range(7)),
                 "Review and apply changes",
                 "Apply changes",
             ]

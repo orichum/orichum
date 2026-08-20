@@ -9,7 +9,13 @@ import re
 from types import MappingProxyType
 from typing import Mapping
 
-from .model_routing import ROLES, RoutingError, validate_model_id, validate_stack_name
+from .model_routing import (
+    LEGACY_ROLES,
+    ROLES,
+    RoutingError,
+    validate_model_id,
+    validate_stack_name,
+)
 
 
 _IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
@@ -306,9 +312,16 @@ def _parse_stacks(
         stack = _exact(
             raw_stack, {"controller", "agents"}, f"stack {name}"
         )
-        agents = _exact(
-            stack["agents"], set(ROLES), f"stack {name} agents"
-        )
+        agents = stack["agents"]
+        legacy_agents = isinstance(agents, dict) and set(agents) == set(LEGACY_ROLES)
+        if not isinstance(agents, dict) or (
+            set(agents) != set(LEGACY_ROLES)
+            and set(agents) != set(ROLES)
+        ):
+            raise StackDefinitionError(
+                f"stack {name} agents must contain exactly {sorted(set(ROLES))}"
+            )
+        roles = LEGACY_ROLES if legacy_agents else ROLES
         if schema_version == 1:
             controller = _migrated_candidates(
                 stack["controller"],
@@ -325,7 +338,7 @@ def _parse_stacks(
                     models=models,
                     multiple=True,
                 )
-                for role in ROLES
+                for role in roles
             }
         else:
             controller = _candidate_list(
@@ -341,8 +354,24 @@ def _parse_stacks(
                     seen_ids=seen_ids,
                     label=f"stack {name} role {role}",
                 )
-                for role in ROLES
+                for role in roles
             }
+        if legacy_agents:
+            architecture = normalized_agents["architecture-advisor"]
+            planning = tuple(
+                StackCandidate(
+                    id=candidate_id(name, "planning-advisor", ordinal, candidate.model),
+                    model=candidate.model,
+                    providers=candidate.providers,
+                )
+                for ordinal, candidate in enumerate(architecture)
+            )
+            if any(candidate.id in seen_ids for candidate in planning):
+                raise StackDefinitionError(
+                    f"stack {name} planning-advisor has duplicate candidate IDs"
+                )
+            seen_ids.update(candidate.id for candidate in planning)
+            normalized_agents["planning-advisor"] = planning
         stacks[name] = StackDefinition(
             name=name,
             controller=controller,

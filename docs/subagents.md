@@ -46,8 +46,8 @@ built-in agent type:
 - `Explore` becomes `orichum-controller:repository-explorer`.
 
 The planning advisor is a bounded, read-only, non-delegating role for routine
-implementation and operational planning. It uses the session's routed model
-and LeanCTX tools, and returns validation, rollback, stop conditions, and
+implementation and operational planning. It has a dedicated planner route and
+uses LeanCTX tools, returning validation, rollback, stop conditions, and
 remaining uncertainty. Unknown generic agent types remain denied.
 
 ## Compaction continuity

@@ -25,6 +25,7 @@ from .leanctx_profiles import (
 )
 from .model_routing import (
     EffectiveStack,
+    LEGACY_ROLES,
     ROLES,
     RoutingError,
     validate_model_id,
@@ -313,8 +314,14 @@ def _parse_session(value: object) -> LogicalSession:
     except RoutingError as failure:
         raise LogicalSessionError("logical session stack is invalid") from failure
     agents = value["agents"]
-    if not isinstance(agents, dict) or set(agents) != set(ROLES):
+    legacy_agents = isinstance(agents, dict) and set(agents) == set(LEGACY_ROLES)
+    if not isinstance(agents, dict) or (
+        set(agents) != set(LEGACY_ROLES)
+        and set(agents) != set(ROLES)
+    ):
         raise LogicalSessionError("logical session agents are invalid")
+    if legacy_agents:
+        agents = {**agents, "planning-advisor": agents["architecture-advisor"]}
     created_at = value["createdAt"]
     try:
         parsed_time = datetime.fromisoformat(created_at.replace("Z", "+00:00"))

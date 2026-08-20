@@ -144,6 +144,25 @@ class ModelRoutingTests(unittest.TestCase):
             {role: "fallback/" + role for role in ROLES},
         )
 
+    def test_legacy_routing_inherits_architecture_candidates_for_planning(self) -> None:
+        routing = json.loads(json.dumps(self.routing))
+        for stack in routing["stacks"].values():
+            stack["agents"].pop("planning-advisor")
+        self.routing_path.write_text(json.dumps(routing), encoding="utf-8")
+
+        effective = resolve_effective(
+            load_routing(self.routing_path), load_catalog(self.catalog_path)
+        )
+
+        self.assertEqual(
+            effective.candidates["planning-advisor"],
+            effective.candidates["architecture-advisor"],
+        )
+        self.assertEqual(
+            effective.agents["planning-advisor"],
+            effective.agents["architecture-advisor"],
+        )
+
     def test_candidate_stack_resolves_ordered_logical_model_ids(self) -> None:
         models = {
             "controller/main": {
@@ -231,7 +250,7 @@ class ModelRoutingTests(unittest.TestCase):
             "repository-explorer"
         ].append(
             {
-                "id": "oc-c-0000000000000007",
+                "id": "oc-c-0000000000000008",
                 "model": "agent/fallback",
                 "providers": ["openai"],
             }

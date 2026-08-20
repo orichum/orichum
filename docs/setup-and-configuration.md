@@ -312,7 +312,7 @@ apply changes**. Nothing is written before that review.
 If the nearest project path contains `.orichum/config.json`, the dashboard
 shows **Profile: Project file**. Models and Advanced settings display the same
 authoritative path instead of offering conflicting wizard edits. Open that one
-file to change the controller, five specialist models, Jira profile name, or
+file to change the controller, six specialist models, Jira profile name, or
 GitHub account name:
 
 ```json
@@ -324,7 +324,8 @@ GitHub account name:
     "repository-verifier": "gpt-5.6-terra",
     "correctness-critic": "claude-sonnet-5",
     "architecture-advisor": "claude-opus-5",
-    "implementation-worker": "gpt-5.6-sol"
+    "implementation-worker": "gpt-5.6-sol",
+    "planning-advisor": "claude-opus-5"
   },
   "jiraProfile": "work",
   "githubAccount": "alupao"

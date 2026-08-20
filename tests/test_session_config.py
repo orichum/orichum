@@ -342,6 +342,33 @@ class SessionConfigTests(unittest.TestCase):
                 agent.read_text(encoding="utf-8"),
             )
 
+    def test_legacy_effective_models_inherit_architecture_model(self) -> None:
+        effective = EffectiveStack(
+            "balanced",
+            "gpt-5.6-sol",
+            {
+                role: ("claude-opus-5",)
+                for role in session_config.ROLES
+            },
+            {
+                role: "claude-opus-5"
+                for role in session_config.ROLES
+            },
+        )
+        document = effective.as_json()
+        document["configuredCandidates"].pop("planning-advisor")
+        document["agents"].pop("planning-advisor")
+
+        loaded = session_config._parse_effective_models(
+            json.dumps(document).encode("utf-8")
+        )
+
+        self.assertTrue(loaded.legacy_agents)
+        self.assertEqual(
+            loaded.agents["planning-advisor"],
+            loaded.agents["architecture-advisor"],
+        )
+
     def test_session_rejects_modified_effective_mapping(self) -> None:
         session = self.create()
         session.effective_models_file.write_text("{}", encoding="utf-8")

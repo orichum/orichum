@@ -12,7 +12,10 @@ from unittest import mock
 
 from integrations.common.account_registry import Account, update_accounts
 from integrations.common.stack_bindings import StackBindings
-from integrations.common.stack_definition import normalize_model_stacks
+from integrations.common.stack_definition import (
+    normalize_model_stacks,
+    serialize_model_stacks,
+)
 from integrations.common.stack_catalog import LiveCatalog, LiveModelChoice
 from integrations.common.stack_store import (
     StackSnapshot,
@@ -902,7 +905,8 @@ class StackStoreTests(unittest.TestCase):
             0o600,
         )
         self.assertEqual(
-            self.read_model_document(), self.document()
+            self.read_model_document(),
+            serialize_model_stacks(self.snapshot.stacks),
         )
 
     def test_save_preserves_absent_binding_when_empty_and_unchanged(self):

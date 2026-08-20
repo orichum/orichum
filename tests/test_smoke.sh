@@ -350,7 +350,7 @@ jq -e '
   and .hookSpecificOutput.updatedInput.description == "Design rollout"
   and .hookSpecificOutput.updatedInput.prompt
     == "Produce the safe rollout plan"
-  and .hookSpecificOutput.updatedInput.model == "inherit"
+  and (.hookSpecificOutput.updatedInput | has("model") | not)
 ' >/dev/null <<<"$routed_plan"
 
 denied_isolated_plan="$(

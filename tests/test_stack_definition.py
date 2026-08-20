@@ -7,6 +7,7 @@ from pathlib import Path
 from types import MappingProxyType
 import unittest
 
+from integrations.common.model_routing import ROLES as ROUTED_ROLES
 from integrations.common.stack_definition import (
     StackDefinitionError,
     candidate_id,
@@ -45,6 +46,15 @@ class StackDefinitionTests(unittest.TestCase):
             ],
         )
         self.assertEqual(
+            [
+                (candidate.model, candidate.providers)
+                for candidate in normalized.stacks["balanced"].agents[
+                    "planning-advisor"
+                ]
+            ],
+            [(candidate.model, candidate.providers) for candidate in candidates],
+        )
+        self.assertEqual(
             normalized.models["claude-opus-5"].routes["anthropic"],
             "claude-opus-5",
         )
@@ -54,7 +64,6 @@ class StackDefinitionTests(unittest.TestCase):
             ],
             "claude-opus-4-6-thinking",
         )
-
     def v1_document(self) -> dict[str, object]:
         models = {
             "gpt-5.6-sol": {
@@ -141,6 +150,13 @@ class StackDefinitionTests(unittest.TestCase):
         self.assertEqual(candidate.model, "claude-opus-4-8")
         self.assertEqual(candidate.providers, ("anthropic",))
         self.assertRegex(candidate.id, r"^oc-c-[0-9a-f]{16}$")
+        planning = first.stacks["balanced"].agents["planning-advisor"]
+        self.assertEqual(
+            [(item.model, item.providers) for item in planning],
+            [(item.model, item.providers) for item in [candidate]],
+        )
+        self.assertNotEqual(planning[0].id, candidate.id)
+
 
     def test_v1_migration_enforces_exact_route_uniqueness_stably(self):
         allowed = self.v1_document()
@@ -243,7 +259,8 @@ class StackDefinitionTests(unittest.TestCase):
             ],
         )
         self.assertEqual(
-            list(serialized["stacks"]["balanced"]["agents"]), list(ROLES)
+            list(serialized["stacks"]["balanced"]["agents"]),
+            list(ROUTED_ROLES),
         )
         self.assertEqual(
             serialized["stacks"]["balanced"]["controller"][0]["id"],

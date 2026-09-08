@@ -162,7 +162,8 @@ else
      ! effective_controller="$(jq -er '
        def model:
          type == "string" and
-         test("^[A-Za-z0-9][A-Za-z0-9._:/@+\\\\-]{0,254}$");
+         (sub("\\[1m\\]$"; "") |
+          test("^[A-Za-z0-9][A-Za-z0-9._:/@+\\\\-]{0,254}$"));
        . as $document |
        ($document | keys) == [
          "agents",
@@ -194,7 +195,7 @@ else
        ) and
        (.agents | all(.[]; model)) |
        select(.) |
-       $document.controller
+       $document.controller | sub("\\[1m\\]$"; "")
      ' "$effective_models_file" 2>/dev/null)"; then
     warning="Orichum health warning: immutable session effective model mapping is missing or invalid."
   elif ! jq -e '
@@ -214,7 +215,7 @@ else
         $effective[0].controller,
         ($effective[0].agents[]?)
       ] |
-      unique |
+      map(sub("\\[1m\\]$"; "")) | unique |
       map(select(. as $model | $available | index($model) | not)) |
       join(", ")
     ' "$models_response" 2>/dev/null || true)"

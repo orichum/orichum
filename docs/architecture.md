@@ -83,7 +83,9 @@ session MCP file contains only the project root and optional profile alias.
    selectors and integrity digest.
 7. Materialize the controller plugin, strict MCP file, private LeanCTX contract,
    and optional external-tool identities.
-8. Start and health-check the session's Claudex translator.
+8. Start and health-check the session's Claudex launcher/proxy. Configure its
+   Claude child to call the Orichum route proxy directly for DirectAnthropic
+   traffic, retaining the logical session header.
 9. Launch Claude Code.
 
 Resume revalidates services and creates a fresh physical package while
@@ -94,8 +96,7 @@ carries only a bounded handoff.
 
 ```mermaid
 flowchart LR
-    CC["Claude Code"] --> X["Per-session Claudex translator"]
-    X --> R["Shared Orichum route proxy"]
+    CC["Claude Code"] --> R["Shared Orichum route proxy"]
     B["Immutable route binding"] -.-> R
     R --> L["Shared LeanCTX wire proxy"]
     L --> P["Shared CLIProxyAPI"]
@@ -148,7 +149,11 @@ normal approval behavior.
 
 - Network services listen on loopback only.
 - CLIProxyAPI, LeanCTX, and the Orichum route proxy are shared services; each
-  active session has only its own Claudex translator and immutable state.
+  active session has its own Claudex launcher/proxy and immutable state.
+  Claudex still owns launching and resume UI, but its five-minute total HTTP
+  deadline is not in the DirectAnthropic inference path. Claude's request
+  timeout is 30 minutes; the route proxy retains its five-minute socket-idle
+  timeout and never replays a request after delivering output.
 - Session files and account registries are private and digest-bound.
 - Each Atlassian process belongs to one physical session and one project
   configuration; projects without Jira credentials pay no process or schema

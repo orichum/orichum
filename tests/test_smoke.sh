@@ -427,7 +427,7 @@ CLAUDEX_RUN_DIR="$checkpoint_run" \
   "$checkpoint_writer" <<JSON
 {"session_id":"checkpoint-session","trigger":"manual","cwd":"$checkpoint_repo","transcript_path":"$checkpoint_transcript","compact_summary":"Continue with the approved implementation and do not repeat completed reconnaissance."}
 JSON
-checkpoint_file="$checkpoint_run/compaction-checkpoint.json"
+checkpoint_file="$checkpoint_run/compaction-checkpoint-checkpoint-session.json"
 [[ -f "$checkpoint_file" && ! -L "$checkpoint_file" ]]
 [[ "$(path_mode "$checkpoint_file")" == 600 ]]
 jq -e \

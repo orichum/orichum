@@ -32,9 +32,9 @@ from integrations.common.model_routing import (
     materialize_runtime_plugin,
     resolve_effective,
     validate_agent_contract,
-    validate_model_id,
     validate_stack_name,
 )
+from integrations.common.model_context import validate_client_model
 from integrations.common.project_context import ContextError, load_config, resolve_context
 
 
@@ -918,7 +918,7 @@ def _parse_effective_models(data: bytes) -> EffectiveStack:
         ):
             raise SessionError("effective model mapping has invalid schema")
         stack_name = validate_stack_name(document["stack"], "effective stack")
-        controller = validate_model_id(
+        controller = validate_client_model(
             document["controller"], "effective controller"
         )
         candidates_raw = document["configuredCandidates"]
@@ -954,14 +954,14 @@ def _parse_effective_models(data: bytes) -> EffectiveStack:
                     f"effective role {role} has invalid candidates"
                 )
             role_candidates = tuple(
-                validate_model_id(value, f"effective role {role}")
+                validate_client_model(value, f"effective role {role}")
                 for value in values
             )
             if len(role_candidates) != len(set(role_candidates)):
                 raise SessionError(
                     f"effective role {role} has duplicate candidates"
                 )
-            selected = validate_model_id(
+            selected = validate_client_model(
                 agents_raw[role], f"effective role {role}"
             )
             if selected not in role_candidates:

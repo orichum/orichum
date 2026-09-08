@@ -304,13 +304,13 @@ class SessionConfigTests(unittest.TestCase):
         )
         effective = EffectiveStack(
             "balanced",
-            "oc-r-0000000000000001/gpt-5.6-sol",
+            "oc-r-0000000000000001/gpt-5.6-sol[1m]",
             {
-                role: (f"oc-r-{index + 2:016x}/gpt-5.6-terra",)
+                role: (f"oc-r-{index + 2:016x}/gpt-5.6-terra[1m]",)
                 for index, role in enumerate(session_config.ROLES)
             },
             {
-                role: f"oc-r-{index + 2:016x}/gpt-5.6-terra"
+                role: f"oc-r-{index + 2:016x}/gpt-5.6-terra[1m]"
                 for index, role in enumerate(session_config.ROLES)
             },
         )

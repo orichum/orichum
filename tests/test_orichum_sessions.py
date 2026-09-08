@@ -485,12 +485,12 @@ class OrichumSessionTests(unittest.TestCase):
                 self.assertEqual(load_logical_session(self.state, session.id), updated)
                 effective = mocks[-1].call_args.kwargs["effective"]
                 self.assertEqual(
-                    effective.controller, updated.controller.primary.upstream_model
+                    effective.controller, orichum_cli.client_model(updated.controller)
                 )
                 self.assertEqual(
                     effective.agents,
                     {
-                        role: binding.primary.upstream_model
+                        role: orichum_cli.client_model(binding)
                         for role, binding in session.agents.items()
                     },
                 )

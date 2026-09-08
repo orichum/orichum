@@ -99,8 +99,11 @@ same repository therefore reuse the same graph and knowledge store.
 Compressed context is for understanding. Supported text edits use an anchored
 `ctx_read` followed by `ctx_patch`. Use `ctx_shell` for every finite,
 non-interactive shell command, independent of the CLI or whether it reads or
-changes state. Use `ctx_shell(raw=true)` when exact output is required,
-including decisive validation after state changes.
+changes state. Keep compressed output by default. Use `ctx_shell(raw=true)`
+for bounded excerpts needed for exact verification, not entire logs or plans.
+Large shell results are excerpted only after the full response is saved in a
+private session artifact; omitted output is not evidence of success. See
+[context safeguards](efficiency-and-performance.md#context-safeguards).
 
 Orichum runs its private session MCP in LeanCTX's blocklist-only shell mode.
 There is no executable-name allowlist to maintain: installed tools, custom

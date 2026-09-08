@@ -71,6 +71,26 @@ reported without replay because output or a tool request may already have
 reached the client. The events contain route identifiers and byte counts but no
 request body, prompt, credential, or provider token.
 
+## Repeated or failed compaction
+
+Large shell results are bounded on new physical launches, and automatic
+compaction stops after two attempts without a successful checkpoint. The
+message identifies the native Claude conversation, which may differ from
+the parent of a background fork. Your transcript is not deleted and project
+actions are not replayed.
+
+Retry explicitly with `/compact Preserve the task, approvals, completed work,
+pending actions, and evidence paths in a concise handoff.` If that fails, run
+`orichum doctor` and inspect the route-proxy logs described above. Do not use
+`/clear` as a recovery step if you need to preserve the conversation. A blocked
+reactive compaction can still leave the context full; the guard stops the
+retry loop rather than pretending the context has been recovered.
+
+Healthy streams can now exceed five minutes through the direct route-proxy
+path. A stream with no socket activity for five minutes still times out.
+Existing clients keep their launch settings until restarted; installing an
+update does not change an already-running session's transport.
+
 ## Wrong GitHub identity
 
 Confirm the context and authenticated accounts:

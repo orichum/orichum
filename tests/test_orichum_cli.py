@@ -598,8 +598,10 @@ class OrichumCliTests(unittest.TestCase):
         }
         session_documents = {"model-stacks": object()}
         bindings = StackBindings({})
-        controller = object()
-        agents = {role: object() for role in orichum_cli.ROLES}
+        from tests.test_model_context import binding
+
+        controller = binding()
+        agents = {role: binding() for role in orichum_cli.ROLES}
         plan = SimpleNamespace(
             stack="repository-local-test",
             controller=controller,
@@ -3515,11 +3517,13 @@ class OrichumCliTests(unittest.TestCase):
             )
 
         command = execute.call_args.args[1]
-        self.assertEqual(command.count("--add-dir"), 1)
+        self.assertEqual(command.count("--add-dir"), 2)
         self.assertEqual(
             command[command.index("--add-dir") + 1],
             str(plugin / "audited-workflows"),
         )
+        self.assertIn(str(run_dir / "context-artifacts"), command)
+        self.assertEqual((run_dir / "context-artifacts").stat().st_mode & 0o777, 0o700)
         self.assertIn("--resume" if resume else "--session-id", command)
         self.assertEqual(
             command[command.index("--resume" if resume else "--session-id") + 1],
@@ -4539,7 +4543,11 @@ class OrichumCliTests(unittest.TestCase):
                 "HOME": "/Users/example",
                 "XDG_CACHE_HOME": "/var/cache/example",
                 "XDG_RUNTIME_DIR": "/var/run/example",
+                "ANTHROPIC_BASE_URL": "https://untrusted.invalid",
+                "ANTHROPIC_CUSTOM_HEADERS": "X-Orichum-Session-ID: wrong",
+                "API_TIMEOUT_MS": "1",
             },
+            route_proxy_port=13457,
         )
 
         rendered = output.read_text(encoding="utf-8")
@@ -4550,6 +4558,14 @@ class OrichumCliTests(unittest.TestCase):
             rendered,
         )
         self.assertIn("[profiles.extra_env]", rendered)
+        self.assertIn('ANTHROPIC_BASE_URL = "http://127.0.0.1:13457"', rendered)
+        self.assertIn('API_TIMEOUT_MS = "1800000"', rendered)
+        self.assertIn('CLAUDE_CODE_AUTO_COMPACT_WINDOW = "1000000"', rendered)
+        self.assertIn(
+            'ANTHROPIC_CUSTOM_HEADERS = "X-Orichum-Session-ID: oc-s-0000000000000001"',
+            rendered,
+        )
+        self.assertNotIn("untrusted.invalid", rendered)
         self.assertIn('HOME = "/Users/example"', rendered)
         self.assertIn(
             'XDG_CACHE_HOME = "/var/cache/example"', rendered
@@ -4725,6 +4741,15 @@ class OrichumCliTests(unittest.TestCase):
                     "ORICHUM_PYTHON_VALIDATED": "/tmp/caller-python",
                     "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1000000",
                     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "82",
+                    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "12000",
+                    "CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE": "12000",
+                    "CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT": "1",
+                    "DISABLE_AUTO_COMPACT": "1",
+                    "DISABLE_COMPACT": "1",
+                    "ANTHROPIC_API_KEY": "unmanaged-key",
+                    "ANTHROPIC_AUTH_TOKEN": "unmanaged-token",
+                    "ANTHROPIC_BASE_URL": "https://untrusted.invalid",
+                    "ANTHROPIC_CUSTOM_HEADERS": "X-Orichum-Session-ID: wrong",
                 },
                 clear=False,
             ),
@@ -4776,6 +4801,18 @@ class OrichumCliTests(unittest.TestCase):
         )
         self.assertNotIn("CLAUDE_CODE_MAX_CONTEXT_TOKENS", environment)
         self.assertNotIn("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", environment)
+        for key in (
+            "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
+            "CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE",
+            "CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT",
+            "DISABLE_AUTO_COMPACT",
+            "DISABLE_COMPACT",
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_AUTH_TOKEN",
+            "ANTHROPIC_BASE_URL",
+            "ANTHROPIC_CUSTOM_HEADERS",
+        ):
+            self.assertNotIn(key, environment)
 
     def test_session_without_selected_identity_preserves_github_environment(
         self,

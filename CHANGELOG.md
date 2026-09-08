@@ -4,6 +4,25 @@ All notable Orichum changes are recorded here.
 
 ## Unreleased
 
+## 0.1.0-rc.23 - 2026-09-09
+
+### Fixed
+
+- Give verified large OpenAI models a per-model 1M client window on new runs,
+  resumes, and forks; keep smaller specialists and fallback routes conservative.
+  Show the effective native capacity in the status line and add interactive
+  repeated-compaction stress coverage to native CI.
+- Preserve bounded Bash replacements when native output was already spooled
+  to a file; retain the original response and full-output file reference.
+- Bound oversized shell text before it fills conversation context, preserving
+  complete private artifacts and exact exit-status fields. Prefer compressed
+  output and concise handoffs over repeated raw logs.
+- Stop repeated unsuccessful automatic compaction with a per-conversation
+  retry guard; isolate checkpoints between native background forks.
+- Keep healthy DirectAnthropic streams off Claudex's five-minute total HTTP
+  deadline while preserving Orichum routing and session identity. Add native
+  Claude/Claudex output-hook and long-stream regression coverage.
+
 ## 0.1.0-rc.22 - 2026-09-08
 
 ### Added

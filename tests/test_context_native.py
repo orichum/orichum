@@ -162,15 +162,42 @@ class NativeContextTests(unittest.TestCase):
                     self.wfile.write(
                         f"event: message_start\ndata: {json.dumps(events[0])}\n\n".encode()
                     )
+                    # Exercise a progressing response, not five minutes of
+                    # heartbeat-only silence. Older native clients correctly
+                    # stop streams with no model events despite SSE pings.
+                    progress_start = {
+                        "type": "content_block_start",
+                        "index": 0,
+                        "content_block": {"type": "text", "text": ""},
+                    }
+                    self.wfile.write(
+                        f"event: content_block_start\ndata: {json.dumps(progress_start)}\n\n".encode()
+                    )
                     self.wfile.flush()
                     deadline = time.monotonic() + stream_seconds
                     while time.monotonic() < deadline:
-                        self.wfile.write(b'event: ping\ndata: {"type":"ping"}\n\n')
+                        progress_delta = {
+                            "type": "content_block_delta",
+                            "index": 0,
+                            "delta": {"type": "text_delta", "text": "."},
+                        }
+                        self.wfile.write(
+                            f"event: content_block_delta\ndata: {json.dumps(progress_delta)}\n\n".encode()
+                        )
                         self.wfile.flush()
                         time.sleep(min(1, max(0, deadline - time.monotonic())))
+                    self.wfile.write(
+                        b'event: content_block_stop\ndata: {"type":"content_block_stop","index":0}\n\n'
+                    )
+                    remainder = [
+                        {**event, "index": event["index"] + 1}
+                        if "index" in event
+                        else event
+                        for event in events[1:]
+                    ]
                     payload = "".join(
                         f"event: {event['type']}\ndata: {json.dumps(event)}\n\n"
-                        for event in events[1:]
+                        for event in remainder
                     ).encode()
                 self.wfile.write(payload)
 

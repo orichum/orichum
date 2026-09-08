@@ -281,7 +281,7 @@ class ConfigureWizardTests(unittest.TestCase):
         models = next(rows for title, rows in io.sections if title == "Models")
         self.assertEqual(len(models), 7)
         self.assertIn(
-            "Changes apply to new sessions. Existing sessions are unchanged.",
+            "Controller changes apply on resume. Agent changes apply to new sessions.",
             io.shown,
         )
 

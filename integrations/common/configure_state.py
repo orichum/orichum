@@ -542,7 +542,7 @@ def review_draft(
         account_rows=tuple(account_rows),
         model_rows=model_rows,
         session_notice=(
-            "Changes apply to new sessions. Existing sessions are unchanged."
+            "Controller changes apply on resume. Agent changes apply to new sessions."
         ),
     )
 

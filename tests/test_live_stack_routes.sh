@@ -456,6 +456,9 @@ import sys
 import time
 
 root = sys.argv[1]
+sys.path.insert(0, root)
+from integrations.common.model_routing import ROLES
+
 child, terminal = pty.fork()
 if child == 0:
     code = """
@@ -484,7 +487,8 @@ raise SystemExit(orichum_cli.main(["stack", "configure"]))
         os.environ,
     )
 
-os.write(terminal, b"2\n\nheavy\n\n6\n\ny\ny\n")
+review_choice = len(ROLES) + 1
+os.write(terminal, f"2\n\nheavy\n\n{review_choice}\n\ny\ny\n".encode("ascii"))
 output = bytearray()
 deadline = time.monotonic() + 20
 status = None

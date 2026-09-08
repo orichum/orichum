@@ -3409,6 +3409,12 @@ class OrichumCliTests(unittest.TestCase):
         self.assertEqual(launch.call_args.kwargs["arguments"], ["continue"])
 
     def test_session_launch_preapproves_only_bounded_leanctx_tools(self) -> None:
+        self._assert_session_launch_permissions(resume=False)
+
+    def test_resumed_session_grants_current_audited_workflow_directory(self) -> None:
+        self._assert_session_launch_permissions(resume=True)
+
+    def _assert_session_launch_permissions(self, *, resume: bool) -> None:
         data = self.root / "data"
         config_home = self.root / "config"
         state = data / "state"
@@ -3504,11 +3510,24 @@ class OrichumCliTests(unittest.TestCase):
                 prepared,
                 paths,
                 resolved,
-                resume=False,
+                resume=resume,
                 arguments=("-p", "read with LeanCTX"),
             )
 
         command = execute.call_args.args[1]
+        self.assertEqual(command.count("--add-dir"), 1)
+        self.assertEqual(
+            command[command.index("--add-dir") + 1],
+            str(plugin / "audited-workflows"),
+        )
+        self.assertIn("--resume" if resume else "--session-id", command)
+        self.assertEqual(
+            command[command.index("--resume" if resume else "--session-id") + 1],
+            prepared.logical.claude_session_id,
+        )
+        self.assertEqual(
+            command[command.index("--model") + 1], physical.controller_model
+        )
         self.assertIn("--allowedTools", command)
         allowed_index = command.index("--allowedTools")
         self.assertEqual(

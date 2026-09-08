@@ -167,7 +167,7 @@ def _project_configuration_rows(
         )
     rows.extend(
         (
-            ("Effect", "Authoritative for new sessions"),
+            ("Effect", "Controller on resume; agents in new sessions"),
             ("Edit", "Open this JSON file in your editor"),
         )
     )

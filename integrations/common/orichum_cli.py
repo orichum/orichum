@@ -90,6 +90,7 @@ from .orichum_sessions import (
     remove_logical_session,
     resolve_logical_session,
     resolve_session_plan,
+    update_session_controller,
 )
 from .orichum_status import main as render_status_main
 from .model_routing import EffectiveStack, ROLES, RoutingError
@@ -1364,7 +1365,7 @@ def _prepare_resume(
 ) -> PreparedLaunch:
     _verify_runtime(paths)
     logical = resolve_logical_session(paths["state"], identifier)
-    context, _project_models = resolve_project_context(
+    context, project_models = resolve_project_context(
         config.documents["projects"],
         launch_dir,
         Path(paths["config"]) / "jira-profiles.json",
@@ -1378,20 +1379,38 @@ def _prepare_resume(
         raise CliError("resume must be launched inside the session workspace")
     accounts = load_accounts(paths["config"] / "accounts.json")
     validate_account_bindings(accounts, config.documents["providers"])
+    session_config, requested_stack, bindings, _ = _session_model_inputs(
+        paths, config, context, project_models
+    )
+    available = _live_models(paths)
+    plan = resolve_session_plan(
+        session_config,
+        accounts,
+        pools=tuple(route["accountPools"]),
+        requested_stack=requested_stack,
+        health={},
+        selection_ordinal=0,
+        bindings=bindings,
+        available_models=available,
+        pinned_agents=logical.agents,
+        preferred_controller=logical.controller,
+    )
+    resumed = replace(logical, controller=plan.controller)
     _validate_session_routes(
-        logical,
+        resumed,
         accounts,
         auth_dir=paths["data"] / "auth",
         provider_document=config.documents["providers"],
     )
-    _validate_live_models(paths, logical.controller, logical.agents)
+    _validate_live_models(paths, resumed.controller, resumed.agents, available=available)
     physical = create_resolved_session(
         WORKFLOW_ROOT,
         data_root=paths["data"],
         context=context,
-        effective=_effective_for(logical),
+        effective=_effective_for(resumed),
         plugin_source=WORKFLOW_ROOT / "controller" / "plugin",
     )
+    logical = update_session_controller(paths["state"], logical, plan.controller)
     return PreparedLaunch(logical, physical)
 
 
@@ -3490,6 +3509,9 @@ def _launch_session(
         str(launch_policy),
         "--plugin-dir",
         str(physical.plugin_dir),
+        # Loading a plugin does not grant Workflow access to its saved scripts.
+        "--add-dir",
+        str(physical.plugin_dir / "audited-workflows"),
     ]
     if resume:
         command.extend(["--resume", prepared.logical.claude_session_id])

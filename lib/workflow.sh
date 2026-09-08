@@ -2752,9 +2752,32 @@ EOF
   esac
 }
 
+orichum_profile_snapshot_path() {
+  (($# == 1)) || return 2
+  local helper_root
+  helper_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  workflow_python -I -B - "$1" "$helper_root" <<'PY'
+import sys
+from pathlib import Path
+
+sys.path.insert(0, sys.argv[2])
+from integrations.common.shell_profiles import ProfilePath, UnsafeProfile
+
+profile = Path(sys.argv[1])
+try:
+    profile = ProfilePath(profile).path
+except UnsafeProfile:
+    # Unsafe profiles are retained without edits by reconciliation.
+    pass
+print(profile)
+PY
+}
+
 orichum_profile_block_matches() {
   (($# == 2)) || return 2
-  workflow_python -I -B - "$1" "$2" <<'PY'
+  local helper_root
+  helper_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  workflow_python -I -B - "$1" "$2" "$helper_root" <<'PY'
 import os
 import stat
 import sys
@@ -2762,6 +2785,13 @@ from pathlib import Path
 
 profile = Path(sys.argv[1])
 expected = Path(sys.argv[2]).read_bytes()
+sys.path.insert(0, sys.argv[3])
+from integrations.common.shell_profiles import ProfilePath, UnsafeProfile
+try:
+    target = ProfilePath(profile)
+except UnsafeProfile:
+    raise SystemExit(1)
+profile = target.path
 try:
     observed = profile.lstat()
 except FileNotFoundError:
@@ -2781,7 +2811,7 @@ start = payload.index(b"# >>> Orichum completion >>>")
 end = payload.index(b"# <<< Orichum completion <<<", start)
 end = payload.find(b"\n", end)
 end = len(payload) if end < 0 else end + 1
-if payload[start:end] != expected:
+if payload[start:end] != expected or not target.unchanged():
     raise SystemExit(1)
 PY
 }
@@ -2793,7 +2823,9 @@ reconcile_orichum_profile_block() {
   local shell="$3"
   local manual="$4"
   local status=0
-  workflow_python -I -B - "$profile" "$block" <<'PY' || status=$?
+  local helper_root
+  helper_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  workflow_python -I -B - "$profile" "$block" "$helper_root" <<'PY' || status=$?
 import os
 import stat
 import sys
@@ -2802,6 +2834,14 @@ from pathlib import Path
 
 profile = Path(sys.argv[1])
 block = Path(sys.argv[2]).read_bytes()
+sys.path.insert(0, sys.argv[3])
+from integrations.common.shell_profiles import ProfilePath, UnsafeProfile
+try:
+    target = ProfilePath(profile)
+except UnsafeProfile as error:
+    print(f"Completion profile unchanged: {error}", file=sys.stderr)
+    raise SystemExit(10)
+profile = target.path
 begin = b"# >>> Orichum completion >>>"
 end = b"# <<< Orichum completion <<<"
 
@@ -2864,6 +2904,8 @@ elif begin_count == end_count == 1:
 else:
     raise SystemExit(10)
 if updated == payload:
+    if not target.unchanged():
+        raise SystemExit(10)
     raise SystemExit(0)
 profile.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
 descriptor, temporary = tempfile.mkstemp(
@@ -2894,6 +2936,8 @@ try:
         os.fsync(handle.fileno())
     os.chmod(temporary, mode)
     # Claim the path atomically before replacement.
+    if not target.unchanged():
+        raise SystemExit(10)
     if observed is None:
         try:
             os.link(temporary, profile, follow_symlinks=False)
@@ -2916,6 +2960,9 @@ try:
             retain_or_restore_claim()
             raise SystemExit(10)
         # Install without replacing a concurrent writer.
+        if not target.unchanged():
+            retain_or_restore_claim()
+            raise SystemExit(10)
         try:
             os.link(temporary, profile, follow_symlinks=False)
         except (FileExistsError, OSError):

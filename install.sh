@@ -2055,11 +2055,14 @@ if [[ -n "$completion_prior_fish_path" && \
   snapshot_path "$completion_prior_fish_path" \
     "$snapshot_dir" completion-fish-prior
 fi
-snapshot_path "$completion_zsh_profile" \
+completion_zsh_snapshot_profile="$(orichum_profile_snapshot_path "$completion_zsh_profile")"
+completion_bash_snapshot_profile="$(orichum_profile_snapshot_path "$completion_bash_profile")"
+completion_bash_login_snapshot_profile="$(orichum_profile_snapshot_path "$completion_bash_login_profile")"
+snapshot_path "$completion_zsh_snapshot_profile" \
   "$snapshot_dir" completion-zshrc
-snapshot_path "$completion_bash_profile" \
+snapshot_path "$completion_bash_snapshot_profile" \
   "$snapshot_dir" completion-bashrc
-snapshot_path "$completion_bash_login_profile" \
+snapshot_path "$completion_bash_login_snapshot_profile" \
   "$snapshot_dir" completion-bash-login
 cliproxy_transaction_active=false
 claudex_proxy_transaction_active=false
@@ -2332,9 +2335,9 @@ PY
       "$completion_bash_path"
       "$completion_fish_path"
       "$completion_fish_record"
-      "$completion_zsh_profile"
-      "$completion_bash_profile"
-      "$completion_bash_login_profile"
+      "${completion_zsh_snapshot_profile:-$completion_zsh_profile}"
+      "${completion_bash_snapshot_profile:-$completion_bash_profile}"
+      "${completion_bash_login_snapshot_profile:-$completion_bash_login_profile}"
     )
     local -a completion_names=(
       completion-zsh
@@ -2683,6 +2686,10 @@ for launcher in orichum; do
   orichum_launcher_mutated=true
 done
 
+[[ "$(orichum_profile_snapshot_path "$completion_zsh_profile")" == "$completion_zsh_snapshot_profile" && \
+   "$(orichum_profile_snapshot_path "$completion_bash_profile")" == "$completion_bash_snapshot_profile" && \
+   "$(orichum_profile_snapshot_path "$completion_bash_login_profile")" == "$completion_bash_login_snapshot_profile" ]] || \
+  workflow_die "shell profile target changed during installation"
 completion_transaction_active=true
 reconcile_orichum_completions \
   "$WORKFLOW_ROOT" "$ORICHUM_HOME_ROOT" \
@@ -2702,11 +2709,11 @@ if [[ -n "$completion_prior_fish_path" && \
   snapshot_path "$completion_prior_fish_path" \
     "$snapshot_dir" completion-fish-prior-installed
 fi
-snapshot_path "$completion_zsh_profile" \
+snapshot_path "$completion_zsh_snapshot_profile" \
   "$snapshot_dir" completion-zshrc-installed
-snapshot_path "$completion_bash_profile" \
+snapshot_path "$completion_bash_snapshot_profile" \
   "$snapshot_dir" completion-bashrc-installed
-snapshot_path "$completion_bash_login_profile" \
+snapshot_path "$completion_bash_login_snapshot_profile" \
   "$snapshot_dir" completion-bash-login-installed
 completion_installed_snapshotted=true
 completion_artifact="$(

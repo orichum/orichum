@@ -265,7 +265,9 @@ orichum_uninstall_remove_profile_block() {
   local profile="$1"
   local expected="$2"
   local status=0
-  workflow_python -I -B - "$profile" "$expected" <<'PY' || status=$?
+  local helper_root
+  helper_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  workflow_python -I -B - "$profile" "$expected" "$helper_root" <<'PY' || status=$?
 import os
 import stat
 import sys
@@ -274,6 +276,14 @@ from pathlib import Path
 
 profile = Path(sys.argv[1])
 expected = Path(sys.argv[2]).read_bytes()
+sys.path.insert(0, sys.argv[3])
+from integrations.common.shell_profiles import ProfilePath, UnsafeProfile
+try:
+    target = ProfilePath(profile)
+except UnsafeProfile as error:
+    print(f"Completion profile unchanged: {error}", file=sys.stderr)
+    raise SystemExit(10)
+profile = target.path
 begin = b"# >>> Orichum completion >>>"
 end = b"# <<< Orichum completion <<<"
 
@@ -358,6 +368,8 @@ try:
         os.fsync(handle.fileno())
     os.chmod(temporary, stat.S_IMODE(observed.st_mode))
     # Claim the path atomically before replacement.
+    if not target.unchanged():
+        raise SystemExit(10)
     try:
         os.rename(profile, claim)
     except (FileNotFoundError, OSError):
@@ -374,6 +386,9 @@ try:
         retain_or_restore_claim()
         raise SystemExit(10)
     # Install without replacing a concurrent writer.
+    if not target.unchanged():
+        retain_or_restore_claim()
+        raise SystemExit(10)
     try:
         os.link(temporary, profile, follow_symlinks=False)
     except (FileExistsError, OSError):

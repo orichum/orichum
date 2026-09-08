@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Immutable, private logical-session bindings for Orichum."""
+"""Private logical-session identities and controller bindings for Orichum."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -31,7 +32,7 @@ from .model_routing import (
     validate_model_id,
     validate_stack_name,
 )
-from .route_selection import Route, RouteError, route_chain
+from .route_selection import Route, RouteError, eligible_routes, route_chain
 from .stack_bindings import StackBindings
 from .stack_definition import (
     NormalizedStacks,
@@ -424,8 +425,10 @@ def resolve_session_plan(
     selection_ordinal: int,
     bindings: StackBindings | None = None,
     available_models: Collection[str] | None = None,
+    pinned_agents: Mapping[str, RouteBinding] | None = None,
+    preferred_controller: RouteBinding | None = None,
 ) -> ResolvedSessionPlan:
-    """Resolve and pin every controller/agent route for a new session."""
+    """Resolve a controller, retaining existing agent bindings on resume."""
     try:
         raw_stacks = config["model-stacks"]
         stacks = (
@@ -449,7 +452,9 @@ def resolve_session_plan(
     bindings = StackBindings({}) if bindings is None else bindings
 
     def bind_candidate(
-        candidate: StackCandidate, ordinal: int
+        candidate: StackCandidate,
+        ordinal: int,
+        preferred: RouteBinding | None = None,
     ) -> RouteBinding:
         try:
             model = stacks.models[candidate.model]
@@ -467,6 +472,30 @@ def resolve_session_plan(
                 selection_ordinal=ordinal,
                 available_models=available_models,
             )
+            if preferred is not None:
+                eligible = {
+                    route
+                    for pool in pools
+                    for route in eligible_routes(
+                        accounts,
+                        pool=pool,
+                        family=model.family,
+                        logical_model=candidate.model,
+                        config=route_config,
+                        allowed_providers=candidate.providers,
+                        locked_account_id=locked,
+                        upstream_by_provider=model.routes,
+                        available_models=available_models,
+                    )
+                    if health.get(route.account_id, "healthy") == "healthy"
+                }
+                if preferred.primary in eligible:
+                    return RouteBinding(
+                        primary=preferred.primary,
+                        fallbacks=tuple(
+                            route for route in chain if route != preferred.primary
+                        )[:1],
+                    )
         except (KeyError, TypeError, RouteError) as failure:
             raise LogicalSessionError(
                 f"no safe account route is available for {candidate.model}"
@@ -482,7 +511,9 @@ def resolve_session_plan(
     controller_failures = []
     for candidate in stack.controller:
         try:
-            controller = bind_candidate(candidate, selection_ordinal)
+            controller = bind_candidate(
+                candidate, selection_ordinal, preferred_controller
+            )
             break
         except LogicalSessionError as failure:
             controller_failures.append(failure)
@@ -492,13 +523,14 @@ def resolve_session_plan(
         ) from controller_failures[-1]
     agent_bindings: dict[str, RouteBinding] = {}
     for index, role in enumerate(ROLES, start=1):
+        if pinned_agents is not None:
+            agent_bindings[role] = pinned_agents[role]
+            continue
         selected = None
         failures = []
         for candidate in stack.agents[role]:
             try:
-                selected = bind_candidate(
-                    candidate, selection_ordinal + index
-                )
+                selected = bind_candidate(candidate, selection_ordinal + index)
                 break
             except LogicalSessionError as failure:
                 failures.append(failure)
@@ -514,9 +546,7 @@ def resolve_session_plan(
     effective = EffectiveStack(
         stack_name=stack_name,
         controller=controller.primary.upstream_model,
-        candidates={
-            role: (effective_agents[role],) for role in ROLES
-        },
+        candidates={role: (effective_agents[role],) for role in ROLES},
         agents=effective_agents,
     )
     return ResolvedSessionPlan(
@@ -675,6 +705,76 @@ def load_logical_session(state_home: Path, identifier: str) -> LogicalSession:
     if session.id != identifier:
         raise LogicalSessionError("logical session ID does not match its path")
     return session
+
+
+def update_session_controller(
+    state_home: Path,
+    expected: LogicalSession,
+    controller: RouteBinding,
+) -> LogicalSession:
+    """Atomically change only the controller without replacing the conversation."""
+    root = _session_root(state_home)
+    # Validate the selector and the existing private binding before locking.
+    load_logical_session(state_home, expected.id)
+    directory = _require_private_directory(root / expected.id, "logical session")
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(directory, flags)
+    temporary = f".binding-{secrets.token_hex(8)}.tmp"
+    temporary_created = False
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        observed = os.fstat(descriptor)
+        current_directory = os.stat(directory, follow_symlinks=False)
+        if (observed.st_dev, observed.st_ino) != (
+            current_directory.st_dev,
+            current_directory.st_ino,
+        ):
+            raise LogicalSessionError("logical session changed while opening")
+        current = load_logical_session(state_home, expected.id)
+        document = _session_json(expected)
+        document["controller"] = _binding_json(controller)
+        updated = _parse_session(document)
+        if current == updated:
+            return current
+        if current != expected:
+            raise LogicalSessionError(
+                "logical session changed during resume; retry resume"
+            )
+        payload = (
+            json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n"
+        ).encode("utf-8")
+        if len(payload) > MAX_BINDING_BYTES:
+            raise LogicalSessionError("logical session binding is too large")
+        output = os.open(
+            temporary,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+            dir_fd=descriptor,
+        )
+        temporary_created = True
+        try:
+            os.fchmod(output, 0o600)
+            _write_all(output, payload)
+            os.fsync(output)
+        finally:
+            os.close(output)
+        os.replace(
+            temporary, "binding.json", src_dir_fd=descriptor, dst_dir_fd=descriptor
+        )
+        temporary_created = False
+        os.fsync(descriptor)
+        return updated
+    finally:
+        try:
+            if temporary_created:
+                os.unlink(temporary, dir_fd=descriptor)
+        finally:
+            os.close(descriptor)
 
 
 def resolve_logical_session(state_home: Path, selector: str) -> LogicalSession:

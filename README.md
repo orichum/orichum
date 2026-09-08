@@ -197,8 +197,9 @@ The complete command map is in the [CLI reference](docs/cli-reference.md).
 - **More model families:** use `orichum configure` to authenticate another
   provider and choose its live models for controller or specialist work. See
   [Model stacks](docs/model-stacks.md).
-- **Resumes and family changes:** resume a frozen session or fork it with a
-  bounded handoff onto another stack. See [Sessions](docs/sessions.md).
+- **Resumes and family changes:** resume the same conversation with your
+  currently configured controller, including a different model family. Fork
+  when you want a separate conversation. See [Sessions](docs/sessions.md).
 - **Memory and code intelligence:** LeanCTX recalls durable decisions, reads
   live source, and answers structural or impact questions. See
   [Memory and code graph](docs/memory-and-code-graph.md).

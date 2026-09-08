@@ -453,7 +453,8 @@ When changes are pending, **Review and apply changes** shows:
 - the target project;
 - selected or pending primary and backup accounts;
 - the concrete model for every controller and specialist role; and
-- the reminder that existing sessions remain unchanged.
+- the reminder that controller changes apply on resume and agent changes apply
+  to new sessions.
 
 The final choices are:
 
@@ -515,14 +516,14 @@ Guided configuration updates durable local control-plane state and then
 reconciles the owned runtime. The final review always states:
 
 ```text
-Changes apply to new sessions. Existing sessions are unchanged.
+Controller changes apply on resume. Agent changes apply to new sessions.
 ```
 
-An existing logical session keeps its frozen controller route, named account,
-and at most one compatible fallback. Resume it when you want the same binding.
-Start a new session to use changed account selection or model assignments. Use
-an explicit fork when moving work to another stack or model family with a
-bounded handoff.
+An existing logical session adopts the currently configured controller route,
+named account, and compatible fallback on resume. Its conversation identity,
+transcript, and agent bindings are preserved, including across controller model
+families. Start a new session for changed agent assignments, or use an explicit
+fork when you want a separate conversation with a bounded handoff.
 
 Accounts, authentication, sessions, provider routing, project contexts, Jira
 profile definitions, and other control-plane data are machine-local private
@@ -568,7 +569,8 @@ Choose:
 5. **Review and apply changes**
 6. **Apply changes**
 
-Start a new session to receive the new frozen primary and compatible fallback.
+Resume to refresh the controller primary and compatible fallback. Start a new
+session to refresh agent routes as well.
 
 ### Mixed controller and specialist models
 

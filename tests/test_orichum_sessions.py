@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,7 @@ import stat
 import subprocess
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 import integrations.common.orichum_cli as orichum_cli
@@ -27,6 +29,7 @@ from integrations.common.orichum_sessions import (
     load_logical_session,
     remove_logical_session,
     resolve_session_plan,
+    update_session_controller,
 )
 from integrations.common.route_selection import Route
 from integrations.common.stack_bindings import StackBindings
@@ -277,6 +280,252 @@ class OrichumSessionTests(unittest.TestCase):
         )
         with self.assertRaises(TypeError):
             session.agents[ROLES[0]] = session.controller
+
+    def test_controller_update_preserves_identity_and_agent_bindings(self) -> None:
+        session = self.create()
+        for family, model in (("gpt", "gpt-6-astra"), ("claude", "claude-opus-5")):
+            with self.subTest(family=family):
+                controller = self.binding(model, family, 50)
+                updated = update_session_controller(self.state, session, controller)
+                self.assertEqual(updated, replace(session, controller=controller))
+                self.assertEqual(load_logical_session(self.state, session.id), updated)
+                self.assertEqual(
+                    orichum_sessions.resolve_logical_session(
+                        self.state, session.claude_session_id
+                    ),
+                    updated,
+                )
+                from integrations.common.route_proxy import RouteIndex
+
+                self.assertEqual(
+                    RouteIndex(self.state).routes_for(
+                        session.id, controller.primary.upstream_model
+                    ),
+                    (controller.primary, controller.fallbacks[0]),
+                )
+                session = updated
+
+    def test_controller_update_is_noop_when_unchanged(self) -> None:
+        session = self.create()
+        with mock.patch.object(orichum_sessions.os, "replace") as publish:
+            self.assertEqual(
+                update_session_controller(self.state, session, session.controller),
+                session,
+            )
+        publish.assert_not_called()
+
+    def test_repeating_same_controller_update_is_idempotent(self) -> None:
+        session = self.create()
+        controller = self.binding("gpt-6-astra", "gpt", 50)
+        updated = update_session_controller(self.state, session, controller)
+        with mock.patch.object(orichum_sessions.os, "replace") as publish:
+            self.assertEqual(
+                update_session_controller(self.state, session, controller), updated
+            )
+        publish.assert_not_called()
+
+    def test_failed_controller_publication_preserves_session(self) -> None:
+        session = self.create()
+        controller = self.binding("gpt-6-astra", "gpt", 50)
+        with mock.patch.object(
+            orichum_sessions.os, "replace", side_effect=OSError("disk failure")
+        ):
+            with self.assertRaisesRegex(OSError, "disk failure"):
+                update_session_controller(self.state, session, controller)
+        self.assertEqual(load_logical_session(self.state, session.id), session)
+        directory = self.state / "logical-sessions" / session.id
+        self.assertEqual([path.name for path in directory.iterdir()], ["binding.json"])
+
+    def test_concurrent_controller_changes_do_not_overwrite_each_other(self) -> None:
+        session = self.create()
+
+        def update(ordinal: int):
+            try:
+                return update_session_controller(
+                    self.state, session, self.binding("gpt-6-astra", "gpt", ordinal)
+                )
+            except LogicalSessionError as error:
+                return error
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = tuple(executor.map(update, (50, 60)))
+        successes = [result for result in results if not isinstance(result, Exception)]
+        self.assertEqual(len(successes), 1)
+        self.assertEqual(load_logical_session(self.state, session.id), successes[0])
+        failures = [result for result in results if isinstance(result, Exception)]
+        self.assertIn("changed during resume", str(failures[0]))
+
+    def _resume_fixture(self, session, *, family="gpt", project_override=False):
+        model = "gpt-6-astra" if family == "gpt" else "claude-opus-5"
+        provider = "openai" if family == "gpt" else "anthropic"
+        stacks = {
+            "schemaVersion": 1,
+            "defaultStack": "balanced",
+            "models": {
+                model: {"provider": provider, "family": family, "upstream": model},
+                "unavailable-new-agent": {
+                    "provider": provider,
+                    "family": family,
+                    "upstream": "unavailable-new-agent",
+                },
+            },
+            "stacks": {
+                "balanced": {
+                    "controller": model,
+                    "agents": {role: ["unavailable-new-agent"] for role in ROLES},
+                }
+            },
+        }
+        account = Account(
+            id="oc-a-0000000000000050",
+            name="Controller",
+            provider=provider,
+            credential_ref="controller.json",
+            pool="work",
+            routing_prefix="oc-r-0000000000000050",
+            priority=100,
+            state="active",
+            original_prefix=None,
+            original_priority=None,
+        )
+        config = SimpleNamespace(
+            documents={
+                "model-stacks": stacks,
+                "projects": {},
+                "providers": {
+                    "providers": {
+                        provider: {"authType": "codex" if family == "gpt" else "claude"}
+                    },
+                    "accountPools": {"work": {"providers": [provider]}},
+                    "fallbackRoutes": {family: [provider]},
+                },
+            }
+        )
+        project_models = None
+        if project_override:
+            project_models = SimpleNamespace(
+                stacks=normalize_model_stacks(stacks), stack_name="balanced"
+            )
+            # The project file, not this machine default, must select the controller.
+            config.documents["model-stacks"] = json.loads(
+                (
+                    Path(__file__).resolve().parents[1] / "config" / "model-stacks.json"
+                ).read_text()
+            )
+        context = {
+            "route": {
+                "scope": "context",
+                "contextRootReal": str(session.project_root),
+                "accountPools": ["work"],
+                "modelStack": None,
+            }
+        }
+        available = frozenset(
+            {
+                f"{account.routing_prefix}/{model}",
+                *(
+                    route.upstream_model
+                    for binding in session.agents.values()
+                    for route in (binding.primary, *binding.fallbacks)
+                ),
+            }
+        )
+        patches = (
+            mock.patch.object(orichum_cli, "_verify_runtime"),
+            mock.patch.object(
+                orichum_cli,
+                "resolve_project_context",
+                return_value=(context, project_models),
+            ),
+            mock.patch.object(orichum_cli, "load_accounts", return_value=(account,)),
+            mock.patch.object(orichum_cli, "validate_account_bindings"),
+            mock.patch.object(orichum_cli, "_validate_session_routes"),
+            mock.patch.object(orichum_cli, "_live_models", return_value=available),
+            mock.patch.object(
+                orichum_cli, "load_stack_bindings", return_value=StackBindings({})
+            ),
+            mock.patch.object(
+                orichum_cli, "create_resolved_session", return_value=object()
+            ),
+        )
+        from contextlib import ExitStack
+
+        stack = ExitStack()
+        self.addCleanup(stack.close)
+        mocks = tuple(stack.enter_context(patch) for patch in patches)
+        return config, mocks
+
+    def test_resume_adopts_configured_controller_without_replacing_conversation(
+        self,
+    ) -> None:
+        for family, project_override in (("gpt", False), ("claude", True)):
+            with self.subTest(family=family, project_override=project_override):
+                session = self.create()
+                config, mocks = self._resume_fixture(
+                    session, family=family, project_override=project_override
+                )
+                prepared = orichum_cli._prepare_resume(
+                    {
+                        "state": self.state,
+                        "data": self.state.parent,
+                        "config": self.state.parent / "config",
+                    },
+                    config,
+                    identifier=session.id
+                    if family == "gpt"
+                    else session.claude_session_id,
+                    launch_dir=session.project_root,
+                )
+                updated = prepared.logical
+                self.assertEqual(updated.controller.primary.family, family)
+                self.assertNotEqual(updated.controller, session.controller)
+                self.assertEqual(
+                    updated, replace(session, controller=updated.controller)
+                )
+                self.assertEqual(load_logical_session(self.state, session.id), updated)
+                effective = mocks[-1].call_args.kwargs["effective"]
+                self.assertEqual(
+                    effective.controller, updated.controller.primary.upstream_model
+                )
+                self.assertEqual(
+                    effective.agents,
+                    {
+                        role: binding.primary.upstream_model
+                        for role, binding in session.agents.items()
+                    },
+                )
+                mocks[4].assert_called_once()
+                self.assertEqual(mocks[4].call_args.args[0], updated)
+
+    def test_resume_failure_leaves_controller_and_transcript_identity_intact(
+        self,
+    ) -> None:
+        for failure_stage in ("catalogue", "credentials", "physical-run"):
+            with self.subTest(stage=failure_stage):
+                session = self.create()
+                config, mocks = self._resume_fixture(session)
+                if failure_stage == "catalogue":
+                    mocks[5].return_value = frozenset()
+                elif failure_stage == "credentials":
+                    mocks[4].side_effect = orichum_cli.CliError(
+                        "credentials unavailable"
+                    )
+                else:
+                    mocks[-1].side_effect = orichum_cli.CliError(
+                        "physical run unavailable"
+                    )
+                with self.assertRaises((LogicalSessionError, orichum_cli.CliError)):
+                    orichum_cli._prepare_resume(
+                        {
+                            "state": self.state,
+                            "data": self.state.parent,
+                            "config": self.state.parent / "config",
+                        },
+                        config,
+                        identifier=session.id,
+                        launch_dir=session.project_root,
+                    )
+                self.assertEqual(load_logical_session(self.state, session.id), session)
 
     def test_new_logical_session_persists_leanctx_profile(self) -> None:
         controller = self.binding("gpt-5.6-sol", "gpt", 1)
@@ -668,6 +917,29 @@ class OrichumSessionTests(unittest.TestCase):
                 plan.effective.agents[role],
                 plan.agents[role].primary.upstream_model,
             )
+
+        preferred = RouteBinding(plan.controller.fallbacks[0], (plan.controller.primary,))
+        resumed = resolve_session_plan(
+            config,
+            (account("0000000000000001", 100), account("0000000000000002", 50)),
+            pools=("work",), requested_stack=None, health={}, selection_ordinal=0,
+            available_models={
+                route.upstream_model for route in (preferred.primary, *preferred.fallbacks)
+            },
+            pinned_agents=plan.agents,
+            preferred_controller=preferred,
+        )
+        self.assertEqual(resumed.controller, preferred)
+        self.assertEqual(resumed.agents, plan.agents)
+
+        without_backup = RouteBinding(plan.controller.primary, ())
+        refreshed = resolve_session_plan(
+            config,
+            (account("0000000000000001", 100), account("0000000000000002", 50)),
+            pools=("work",), requested_stack=None, health={}, selection_ordinal=0,
+            pinned_agents=plan.agents, preferred_controller=without_backup,
+        )
+        self.assertEqual(refreshed.controller, plan.controller)
 
     def test_session_plan_tries_candidates_in_order_and_honors_account_binding(
         self,

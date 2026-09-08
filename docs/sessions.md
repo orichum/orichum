@@ -26,13 +26,15 @@ rejects runtime options it owns, including model, session, workspace, MCP,
 plugin, effort, tool-approval, and permission-mode settings.
 
 Every launch re-resolves and validates the project context and live services.
-A newly created logical session then freezes its selected primary route and at
-most one compatible fallback.
+A newly created logical session records its selected primary route and at
+most one compatible fallback. Agent routes remain pinned; the controller is
+refreshed from current configuration when the session resumes.
 
 If the launch path resolves a valid `.orichum/config.json`, a fresh logical
 session uses its repository model mapping before freezing routes and its Jira
-and GitHub account names for the physical launch. Later edits or deletion do
-not alter the stored logical model route.
+and GitHub account names for the physical launch. Later edits take effect for
+the controller on resume. Deleting the repository file restores the current
+machine configuration as the source of the resumed controller.
 
 ## Resume
 
@@ -42,16 +44,26 @@ orichum resume SESSION_ID
 
 `SESSION_ID` may be the `oc-s-…` logical ID shown by `orichum sessions` or the
 Claude session UUID printed when Claude Code exits. Orichum resolves either form
-to the same frozen logical session.
+to the same logical session and conversation.
 
-Resume loads the stored Orichum context again, verifies its integrity, and
-preserves the original model/account binding and Claude session identity. It
-does not silently move to another family after configuration changes.
+Resume validates the workspace and resolves the controller from the current
+project or machine configuration. Changing the controller model or family
+preserves the logical session ID, Claude conversation UUID and transcript,
+parent, LeanCTX profile, and existing agent bindings. No fork or handoff is
+required. The launcher passes the new model with the original `--resume` UUID.
+
+The new route must be configured, authenticated, and advertised by the live
+catalogue. Orichum validates it and prepares the physical run before atomically
+updating the saved controller. A failed validation leaves the saved session
+intact. `orichum session routes SESSION_ID` shows the updated controller.
+
+This happens when resuming; editing configuration does not switch a running
+controller mid-turn. Agent model changes still require a new session or fork.
 
 ## Fork
 
-Use a fork to change stack or model family while carrying only an explicit,
-bounded handoff:
+Use a fork when you want a separate conversation or different agent bindings,
+carrying only an explicit, bounded handoff:
 
 ```bash
 orichum models stacks
@@ -65,8 +77,8 @@ or the full parent transcript.
 
 A fork without `--stack` inherits the parent's frozen routes and ignores the
 current repository model file. Supplying `--stack` is explicit session-scoped
-intent: Orichum resolves that named machine-local stack instead. Resume always
-keeps the original frozen routes.
+intent: Orichum resolves that named machine-local stack instead. Resume keeps
+the agent bindings and refreshes the controller from current configuration.
 Concurrent sessions use separate physical run directories, MCP files, plugin
 copies, and Claudex translation ports. CLIProxyAPI, the LeanCTX wire proxy, and
 the Orichum route proxy are shared, while each physical session owns its

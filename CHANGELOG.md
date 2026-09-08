@@ -4,6 +4,19 @@ All notable Orichum changes are recorded here.
 
 ## Unreleased
 
+## 0.1.0-rc.21 - 2026-09-08
+
+### Added
+
+- Resume adopts the currently configured controller, including a different
+  model family, while preserving the conversation ID, transcript, and agent
+  bindings. Controller updates are validated and published atomically.
+
+### Fixed
+
+- Fresh and resumed controllers explicitly receive access to their generated
+  audited workflow directory so saved review and investigation scripts can run.
+
 ## 0.1.0-rc.20 - 2026-08-20
 
 ### Fixed

@@ -96,8 +96,9 @@ fallback.
 Machine-local reusable stack definitions live in `model-stacks.json`, and
 machine-local named account locks live privately in `stack-bindings.json`.
 The repository `.orichum/config.json` contains direct logical model assignments
-and optional Jira/GitHub account names. Editing either source does not mutate
-existing sessions; start a fresh session to use the changed definition.
+and optional Jira/GitHub account names. Controller changes take effect on
+resume while preserving the conversation. Agent bindings stay pinned; start
+a fresh session to use changed agent assignments.
 
 The standard roles are controller, repository explorer, repository verifier,
 correctness critic, architecture advisor, implementation worker, and planning

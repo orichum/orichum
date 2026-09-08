@@ -630,7 +630,7 @@ rg -Fq \
   'Use `ctx_shell` for every finite, non-interactive shell command' \
   "$ROOT/config/controller-policy.md"
 rg -Fq \
-  'Use `ctx_shell(raw=true)` when exact command output is required' \
+  'Use compressed `ctx_shell` output by default. Use `raw=true` only for the' \
   "$ROOT/config/controller-policy.md"
 rg -Fq \
   'Do not run the same command through both shell paths' \

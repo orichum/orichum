@@ -61,7 +61,7 @@ alongside usage, for example `context 41%/1,000k`.
 
 The window is shared by instructions, conversation, tool results, and generated
 output; it is not a one-million-token allowance for user messages alone. Native
-output reserves and compaction headroom trigger summarization below that limit.
+output reserves and a compaction safety margin trigger summarization below that limit.
 
 The model specification is not proof of account-specific entitlement. Native
 CI verifies the client window, unchanged wire ID, output budgets, repeated

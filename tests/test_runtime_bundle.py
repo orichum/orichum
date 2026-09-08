@@ -90,6 +90,10 @@ class RuntimeBundleTests(unittest.TestCase):
         self.assertFalse((release / ".git").exists())
         self.assertFalse(any(release.rglob("__pycache__")))
         self.assertFalse(any(release.rglob("*.pyc")))
+        # Installation normalizes hook scripts to 0755. Their packaged modes
+        # must already match, or that chmod invalidates the immutable manifest.
+        for script in (release / "controller/plugin/scripts").glob("*.sh"):
+            self.assertEqual(script.stat().st_mode & 0o777, 0o755, str(script))
         validate(release)
 
     def test_build_records_clean_git_source_identity(self) -> None:

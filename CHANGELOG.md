@@ -4,6 +4,14 @@ All notable Orichum changes are recorded here.
 
 ## Unreleased
 
+## 0.1.0-rc.22 - 2026-09-08
+
+### Added
+
+- Completion activation supports user-owned shell-profile symlinks into
+  dotfiles within the user's home. Installation, verification, uninstall, and
+  upgrade rollback preserve the links and operate on validated target files.
+
 ## 0.1.0-rc.21 - 2026-09-08
 
 ### Added

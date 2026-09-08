@@ -256,10 +256,15 @@ The zsh block adds Orichum's definition directory to `fpath` and registers the
 function only when completion is already initialized; it does not run
 `compinit`. The Bash block sources the generated definition from both
 interactive and login shells. Missing profiles are created privately.
-Symlinked, foreign-owned, malformed, concurrently changed, or edited managed
-blocks are retained unchanged, and the installer prints a manual activation
-command instead. Completion definitions carry a body digest so upgrades and
-uninstall can distinguish owned files from edited content. Orichum also records
+Symlinked profiles are supported when their link chain resolves to an existing
+user-owned regular file inside the user's home, with user-owned directories
+and no group/other write access to the target or its directories. Absolute and
+relative dotfile links are preserved; installation and uninstall edit only the
+managed block in the target. Upgrade rollback snapshots the target content.
+Broken, cyclic, external, foreign-owned, concurrently changed, or edited
+managed profiles are retained unchanged, and the installer prints a manual
+activation command instead. Completion definitions carry a body digest so
+upgrades and uninstall can distinguish owned files from edited content. Orichum also records
 the active fish destination under `~/.orichum/completions/` so reinstall and
 uninstall can reconcile it after `XDG_CONFIG_HOME` changes.
 

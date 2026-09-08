@@ -162,20 +162,23 @@ completion_fish="$fixture/fish/orichum.fish"
 completion_prior_fish="$fixture/prior-fish/orichum.fish"
 completion_fish_record="$completion_root/fish-path"
 completion_zshrc="$fixture/home/.zshrc"
+completion_zshrc_target="$fixture/home/.dotfiles/.zshrc"
 completion_bashrc="$fixture/home/.bashrc"
 completion_bash_login="$fixture/home/.bash_profile"
 install -d -m 0700 \
   "$(dirname "$completion_zsh")" "$(dirname "$completion_bash")" \
   "$(dirname "$completion_fish")" "$(dirname "$completion_prior_fish")" \
   "$(dirname "$completion_zshrc")" \
+  "$(dirname "$completion_zshrc_target")" \
   "$completion_snapshot"
+ln -s .dotfiles/.zshrc "$completion_zshrc"
 completion_paths=(
   "$completion_zsh"
   "$completion_bash"
   "$completion_fish"
   "$completion_prior_fish"
   "$completion_fish_record"
-  "$completion_zshrc"
+  "$completion_zshrc_target"
   "$completion_bashrc"
   "$completion_bash_login"
 )
@@ -207,10 +210,16 @@ completion_bash_path="$completion_bash"
 completion_fish_path="$completion_fish"
 completion_prior_fish_path="$completion_prior_fish"
 completion_zsh_profile="$completion_zshrc"
+completion_zsh_snapshot_profile="$(
+  HOME="$fixture/home" orichum_profile_snapshot_path "$completion_zshrc"
+)"
+[[ "$completion_zsh_snapshot_profile" == "$completion_zshrc_target" ]]
 completion_bash_profile="$completion_bashrc"
 completion_bash_login_profile="$completion_bash_login"
 claude_settings_transaction_active=false
 rollback_install_transaction
+[[ -L "$completion_zshrc" ]]
+[[ "$(readlink "$completion_zshrc")" == .dotfiles/.zshrc ]]
 for index in "${!completion_paths[@]}"; do
   [[ "$(<"${completion_paths[$index]}")" == "before $index" ]]
 done

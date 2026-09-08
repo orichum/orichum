@@ -14,13 +14,14 @@ decisive verification. Do not add unrequested flexibility, abstractions,
 dependencies, or adjacent refactoring. Use LeanCTX for repository context,
 anchored reads, and supported text patches.
 Use `ctx_shell` for every finite, non-interactive shell command, independent
-of the CLI or whether it reads or changes state; request
-raw output for exact validation after state changes. Load Bash only for
-interactive, streaming, or long-running processes, LeanCTX-rejected redirects
+of the CLI or whether it reads or changes state. Keep compressed output by
+default; retrieve a bounded raw excerpt when exact verification requires it.
+Keep complete logs in files instead of returning them to the controller. Load
+Bash only for interactive, streaming, or long-running processes, LeanCTX-rejected redirects
 or file writes, or one explicit fallback after `ctx_shell` cannot execute the
 command. Do not replay the same command through both shell paths unless one
 bounded raw follow-up is required. Use native edits only for unsupported
 content. The controller owns project overview and durable knowledge. Never
 delegate, merge, push, alter credentials, touch production, or expand
-ownership. Report changed files, test commands and output, remaining risk, and
-the worktree location.
+ownership. Report changed files, test commands and concise outcomes, evidence
+paths, remaining risk, and the worktree location.

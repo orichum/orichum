@@ -415,6 +415,11 @@ def render_status(
     stack = _text(session.stack, "stack")
     family_label = _FAMILY_LABELS.get(family, family.title())
     context = _nested_percentage(payload, "context_window", "used_percentage")
+    if isinstance(payload, Mapping):
+        window = payload.get("context_window")
+        size = window.get("context_window_size") if isinstance(window, Mapping) else None
+        if type(size) is int and 0 < size <= 10_000_000:
+            context += f"/{size // 1000:,}k"
     five_hour = _quota_percentage(
         payload,
         provider_quota,

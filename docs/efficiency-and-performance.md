@@ -4,6 +4,92 @@ This report records controlled measurements from the 2026-07-27
 release-candidate pass. Measurements are local observations, not marketing
 estimates.
 
+## Context safeguards
+
+New physical launches, including logical-session resumes, apply these guards:
+
+- Bash and LeanCTX shell text above 8,000 aggregate characters is replaced by
+  a marked head/tail excerpt. The complete original response is saved first
+  as a SHA-256-addressed JSON file in the private run directory's
+  `context-artifacts/` (directory mode 0700, files 0600). Claude receives read
+  access to that directory. Artifacts have the run directory's lifetime; they
+  are not durable project memory. Existing cleanup of a run removes them.
+- Exact file reads, small outputs, structured or mixed-media MCP responses,
+  MCP errors, and interrupted/image Bash results remain unchanged. Exit-status
+  fields are preserved. Storage failures retain the original output rather
+  than discard evidence. This is a shell text budget, not a token limit on
+  every tool or a guarantee that compaction will never be needed.
+- Controller and implementation-worker instructions prefer compressed shell
+  output and targeted raw verification. Compaction guidance targets a concise
+  handoff preserving approvals, progress, pending work, and evidence paths.
+- Two compaction attempts without a successful checkpoint exhaust the automatic
+  retry budget for that native conversation. A third automatic attempt is
+  blocked with recovery guidance. Manual `/compact` remains available; a new
+  user prompt or successful compaction resets the budget. This guard observes
+  native hook events, not retries internal to a single provider request.
+- Native conversation IDs isolate compaction checkpoints and attempt counters
+  for background forks sharing the same logical route.
+
+The DirectAnthropic model path goes straight from Claude to Orichum's route
+proxy, retaining route enforcement, LeanCTX, and the logical session header.
+Claudex remains the launcher but its five-minute total request deadline no
+longer cuts off healthy streams. Claude has a 30-minute request timeout; the
+route proxy's five-minute socket-idle timeout remains in force. Disconnects
+after output are surfaced without replaying project actions.
+
+These changes do not rewrite existing transcripts or hot-patch running clients.
+
+## Model-aware context windows
+
+New sessions, resumes, and forks encode a per-model native `[1m]` hint for
+the exact OpenAI routes `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, and
+`gpt-6-astra`. Their documented model capacity is 1,050,000 tokens; the client
+uses 1,000,000. Claude strips the hint before sending the model ID, so route
+identity and fallback selection remain unchanged. The capacity mapping is
+source-backed in `integrations/common/model_context.py`, not inferred from a
+model name prefix or a user-assigned alias.
+
+Each controller/worker binding uses the smallest supported window across its
+primary and automatic fallback. Unknown models/providers retain the existing
+conservative client behavior. A large controller does not enlarge a smaller
+specialist. Inherited context/compaction overrides are removed from managed
+launches. Orichum supplies a 1M **compaction ceiling**, which Claude clamps to
+each model's own capacity; it is not a global model-window override. This
+explicit policy enables threshold compaction for `[1m]` aliases instead of
+waiting for a provider context error. The status line shows the native capacity
+alongside usage, for example `context 41%/1,000k`.
+
+The window is shared by instructions, conversation, tool results, and generated
+output; it is not a one-million-token allowance for user messages alone. Native
+output reserves and a compaction safety margin trigger summarization below that limit.
+
+The model specification is not proof of account-specific entitlement. Native
+CI verifies the client window, unchanged wire ID, output budgets, repeated
+interactive compactions, and a before-output fallback against a local fixture.
+It does not claim that a live provider accepted a million-token request or
+that a synthetic handoff measures real summarization quality. Larger contexts
+can also increase latency and cross provider long-context pricing thresholds.
+
+The provider-free soak is reproducible with:
+
+```bash
+ORICHUM_NATIVE_CLAUDE="$(command -v claude)" \
+  ORICHUM_CONTEXT_SOAK_TURNS=256 \
+  python3 -m unittest tests.test_context_soak_native
+```
+
+It exercises the interactive REPL in a private temporary directory, uses
+synthetic token counts to trigger full-window transitions, checks that numbered
+fixture writes are not repeated, and verifies handoff/checkpoint continuity.
+
+Local verification on 2026-09-09 with Claude Code 2.1.263 completed 256 tool
+calls and 32 automatic compactions in approximately 85 seconds, including a
+before-output fallback. Every numbered tool completed successfully exactly once,
+and each summary retained the fixture handoff. A separate native contract seeded
+an exhausted retry history and verified that `PreCompact` blocked compaction
+without applying a summary. These are accelerated lifecycle tests, not evidence
+of multi-hour stability, live provider capacity, or real summary quality.
+
 ## Source-context savings
 
 Token counts use the `o200k_base` tokenizer for a consistent comparison. The

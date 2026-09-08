@@ -4,8 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../lib/workflow.sh
 source "$ROOT/lib/workflow.sh"
-[[ "$(<"$ROOT/VERSION")" == 0.1.0-rc.22 ]]
-rg -Fq '## 0.1.0-rc.22 - 2026-09-08' "$ROOT/CHANGELOG.md"
+[[ "$(<"$ROOT/VERSION")" == 0.1.0-rc.23 ]]
+rg -Fq '## 0.1.0-rc.23 - 2026-09-09' "$ROOT/CHANGELOG.md"
 rg -Fq "evidence-driven delegation: continuously assess the task's evolving scope," \
   "$ROOT/config/controller-policy.md"
 rg -Fq 'never controller model, provider, fixed keywords' \
@@ -427,7 +427,7 @@ CLAUDEX_RUN_DIR="$checkpoint_run" \
   "$checkpoint_writer" <<JSON
 {"session_id":"checkpoint-session","trigger":"manual","cwd":"$checkpoint_repo","transcript_path":"$checkpoint_transcript","compact_summary":"Continue with the approved implementation and do not repeat completed reconnaissance."}
 JSON
-checkpoint_file="$checkpoint_run/compaction-checkpoint.json"
+checkpoint_file="$checkpoint_run/compaction-checkpoint-checkpoint-session.json"
 [[ -f "$checkpoint_file" && ! -L "$checkpoint_file" ]]
 [[ "$(path_mode "$checkpoint_file")" == 600 ]]
 jq -e \

@@ -154,7 +154,7 @@ repository_state() {
 write_checkpoint() {
   local run_dir="$1"
   local document="$2"
-  local checkpoint="$run_dir/compaction-checkpoint.json"
+  local checkpoint="$run_dir/compaction-checkpoint-$3.json"
   local temporary=""
   local size=""
 
@@ -197,7 +197,7 @@ main() {
   input="$(read_hook_input)" || return 0
   jq -e 'type == "object"' >/dev/null 2>&1 <<<"$input" || return 0
   session_id="$(jq -er '
-    .session_id | select(type == "string" and length > 0 and length <= 256)
+    .session_id | select(type == "string" and test("^[A-Za-z0-9_-]{1,128}$"))
   ' <<<"$input" 2>/dev/null)" || return 0
   trigger="$(jq -er '
     .trigger | select(. == "manual" or . == "auto")
@@ -233,7 +233,7 @@ main() {
       completedAgents: $completed_agents
     }'
   )" || return 0
-  write_checkpoint "$run_dir" "$document" || return 0
+  write_checkpoint "$run_dir" "$document" "$session_id" || return 0
 }
 
 main || :

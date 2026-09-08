@@ -131,6 +131,16 @@ jobs:
           grep -Fq 'provider setup is pending; run orichum setup' \
             <<<"$doctor_output"
 
+      - name: Verify native context guard and direct transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORICHUM_NATIVE_CLAUDE="$(command -v claude)" \
+            ORICHUM_NATIVE_CLAUDEX="$ORICHUM_DATA_HOME/bin/claudex" \
+            ORICHUM_CONTEXT_SOAK_TURNS=256 \
+            "$ORICHUM_DATA_HOME/bin/orichum-python" -m unittest \
+              tests.test_context_native tests.test_context_soak_native
+
       - name: Activate disposable multi-family routes
         shell: bash
         run: |

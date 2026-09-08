@@ -140,13 +140,18 @@ main() {
   input="$(read_hook_input)" || return 0
   jq -e 'type == "object"' >/dev/null 2>&1 <<<"$input" || return 0
   session_id="$(jq -er '
-    .session_id | select(type == "string" and length > 0 and length <= 256)
+    .session_id | select(type == "string" and test("^[A-Za-z0-9_-]{1,128}$"))
   ' <<<"$input" 2>/dev/null)" || return 0
   jq -e '.source == "compact"' >/dev/null 2>&1 <<<"$input" || return 0
   cwd="$(jq -er '
     .cwd | select(type == "string" and length > 0 and length <= 4096)
   ' <<<"$input" 2>/dev/null)" || return 0
-  checkpoint_file="$run_dir/compaction-checkpoint.json"
+  checkpoint_file="$run_dir/compaction-checkpoint-$session_id.json"
+  if [[ ! -e "$checkpoint_file" && ! -L "$checkpoint_file" ]]; then
+    # Old snapshots stored one checkpoint. The session identity check below
+    # still prevents a background fork from restoring its parent's state.
+    checkpoint_file="$run_dir/compaction-checkpoint.json"
+  fi
   checkpoint="$(read_checkpoint "$checkpoint_file")" || return 0
   jq -e '
     type == "object"

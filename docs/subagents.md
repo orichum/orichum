@@ -53,8 +53,10 @@ remaining uncertainty. Unknown generic agent types remain denied.
 ## Compaction continuity
 
 After manual or automatic compaction, Orichum writes a private checkpoint in
-the session run directory. It records the compact summary, repository HEAD and
-dirty state, and only the type and description of successfully completed Agent
+the session run directory, keyed by Claude Code's native conversation ID so
+background forks do not overwrite each other's checkpoint. It records the
+compact summary, repository HEAD and dirty state, and only the type and
+description of successfully completed Agent
 calls. Prompts and agent results are not copied into the checkpoint.
 
 When Claude Code restarts the same session with `source=compact`, Orichum adds a

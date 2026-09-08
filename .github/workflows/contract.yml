@@ -37,6 +37,12 @@ jobs:
         run: |
           set -euo pipefail
           uvx --from ruff==0.16.1 ruff format --check \
+            integrations/common/model_context.py \
+            tests/test_model_context.py \
+            tests/test_context_soak_native.py \
+            integrations/common/context_control.py \
+            tests/test_context_control.py \
+            tests/test_context_native.py \
             integrations/common/terminal_ui.py \
             integrations/common/configure_state.py \
             integrations/common/configure_wizard.py \
@@ -48,6 +54,12 @@ jobs:
             tests/test_jira_profiles.py \
             tests/test_configure_wizard.py
           uvx --from ruff==0.16.1 ruff check \
+            integrations/common/model_context.py \
+            tests/test_model_context.py \
+            tests/test_context_soak_native.py \
+            integrations/common/context_control.py \
+            tests/test_context_control.py \
+            tests/test_context_native.py \
             integrations/common/terminal_ui.py \
             integrations/common/configure_state.py \
             integrations/common/configure_wizard.py \
@@ -66,3 +78,13 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_*.py'
           bash tests/test_smoke.sh
           bash tests/test_bootstrap.sh
+
+      - name: Verify native context hook contract without provider credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/native-claude" --no-audit --no-fund \
+            @anthropic-ai/claude-code
+          ORICHUM_NATIVE_CLAUDE="$RUNNER_TEMP/native-claude/node_modules/.bin/claude" \
+            uv run --no-project --python 3.14 python -m unittest \
+              tests.test_context_native tests.test_context_soak_native

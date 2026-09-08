@@ -64,6 +64,7 @@ from .leanctx_profiles import (
     LEANCTX_PROFILES,
     resident_tool_names,
 )
+from .model_context import client_model
 from .orichum_config import (
     ConfigError,
     ResolvedConfig,
@@ -81,6 +82,7 @@ from .orichum_sessions import (
     LogicalSessionCleanup,
     LogicalSessionError,
     PhysicalRunCleanup,
+    ResolvedSessionPlan,
     RouteBinding,
     clear_logical_sessions,
     cleanup_physical_runs,
@@ -1077,13 +1079,13 @@ def _session_routes(
     )
 
 
-def _effective_for(session: LogicalSession) -> EffectiveStack:
+def _effective_for(session: LogicalSession | ResolvedSessionPlan) -> EffectiveStack:
     agents = {
-        role: session.agents[role].primary.upstream_model for role in ROLES
+        role: client_model(session.agents[role]) for role in ROLES
     }
     return EffectiveStack(
         stack_name=session.stack,
-        controller=session.controller.primary.upstream_model,
+        controller=client_model(session.controller),
         candidates={role: (agents[role],) for role in ROLES},
         agents=agents,
     )
@@ -1342,7 +1344,7 @@ def _prepare_new_session(
         WORKFLOW_ROOT,
         data_root=paths["data"],
         context=context,
-        effective=plan.effective,
+        effective=_effective_for(plan),
         plugin_source=WORKFLOW_ROOT / "controller" / "plugin",
     )
     logical = create_logical_session(
@@ -1515,7 +1517,7 @@ def _prepare_fork(
         controller = plan.controller
         agents = plan.agents
         stack = plan.stack
-        effective = plan.effective
+        effective = _effective_for(plan)
     family_changed = (
         controller.primary.family != parent.controller.primary.family
     )
@@ -3070,7 +3072,11 @@ def _materialize_session_claudex_config(
     prepared: PreparedLaunch,
     proxy_port: int,
     inherited_environment: Mapping[str, str],
+    *,
+    route_proxy_port: int,
 ) -> Path:
+    if type(route_proxy_port) is not int or not 1024 <= route_proxy_port <= 65535:
+        raise CliError("session route proxy port is invalid")
     content = _read_stable_file(source, "Claudex configuration", 1024 * 1024)
     marker = b'X-Orichum-Session-ID = "unbound"'
     if content.count(marker) != 1:
@@ -3090,7 +3096,23 @@ def _materialize_session_claudex_config(
     if "[profiles.extra_env]" in text:
         raise CliError("Claudex configuration already defines profile environment")
     real_home = inherited_environment.get("HOME") or str(Path.home())
-    restored_environment = {"HOME": real_home}
+    # DirectAnthropic needs no translation. Keep Claudex's launcher, model
+    # aliases and resume hint, but do not put its 300-second total-request
+    # deadline between Claude and our already policy-enforcing route proxy.
+    # Claudex applies extra_env after its default transport environment.
+    restored_environment = {
+        "HOME": real_home,
+        "ANTHROPIC_BASE_URL": f"http://127.0.0.1:{route_proxy_port}",
+        "ANTHROPIC_CUSTOM_HEADERS": (
+            f"X-Orichum-Session-ID: {prepared.logical.id}"
+        ),
+        "API_TIMEOUT_MS": "1800000",
+        # This is a compaction ceiling, not a model-capacity override. Claude
+        # clamps it to each model's own window (including smaller specialists).
+        # Explicit policy also enables threshold compaction for [1m] aliases,
+        # whose native automatic policy otherwise waits for a provider error.
+        "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1000000",
+    }
     for name in ("XDG_CACHE_HOME", "XDG_RUNTIME_DIR"):
         value = inherited_environment.get(name)
         if value:
@@ -3337,6 +3359,14 @@ def _session_environment(
         "CLAUDE_CODE_EFFORT_LEVEL",
         "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
         "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
+        "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
+        "CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE",
+        "CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT",
+        "DISABLE_AUTO_COMPACT",
+        "DISABLE_COMPACT",
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_BASE_URL",
         "ANTHROPIC_CUSTOM_HEADERS",
     ):
         environment.pop(key, None)
@@ -3468,9 +3498,12 @@ def _launch_session(
             ),
         ),
         os.environ,
+        route_proxy_port=runtime_ports["routeProxyPort"],
     )
     runtime = config.documents["runtime"]["controller"]
     physical = prepared.physical
+    artifacts = physical.run_dir / "context-artifacts"
+    artifacts.mkdir(mode=0o700)
     github_config = _github_config_for_session(paths, physical)
     environment = _session_environment(
         prepared,
@@ -3512,6 +3545,8 @@ def _launch_session(
         # Loading a plugin does not grant Workflow access to its saved scripts.
         "--add-dir",
         str(physical.plugin_dir / "audited-workflows"),
+        "--add-dir",
+        str(artifacts),
     ]
     if resume:
         command.extend(["--resume", prepared.logical.claude_session_id])

@@ -15,6 +15,15 @@ from integrations.common.route_selection import Route
 
 
 class OrichumStatusTests(unittest.TestCase):
+    def test_status_reports_native_context_capacity(self):
+        from integrations.common.orichum_status import render_status
+        session, accounts, route_status = self._status_fixture()
+        result = render_status(
+            {"context_window": {"used_percentage": 41, "context_window_size": 1000000}},
+            session, accounts, route_status=route_status, color=False,
+        )
+        self.assertIn("context 41%/1,000k", result)
+
     @staticmethod
     def _status_fixture() -> tuple[
         LogicalSession,

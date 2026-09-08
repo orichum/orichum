@@ -175,7 +175,7 @@ class NativeContextTests(unittest.TestCase):
                 self.wfile.write(payload)
 
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             home = root / "home"
             home.mkdir(mode=0o700)
             settings = root / "settings.json"

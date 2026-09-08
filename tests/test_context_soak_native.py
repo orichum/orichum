@@ -68,9 +68,16 @@ def interactive_run(command, root, environment, state, timeout):
     screen = b""
     deadline = time.monotonic() + timeout
     finished_at = None
+    progress = None
+    last_progress = time.monotonic()
     try:
         while time.monotonic() < deadline:
             if process.poll() is not None:
+                break
+            current = (state.get("issued"), state.get("compactions"))
+            if current != progress:
+                progress, last_progress = current, time.monotonic()
+            elif time.monotonic() - last_progress > 90:
                 break
             if (
                 state.get("expect_block")
@@ -96,7 +103,11 @@ def interactive_run(command, root, environment, state, timeout):
             if "compact" in line.lower() and "output budget" not in line
         )[-4000:]
         raise AssertionError(
-            "Interactive context soak did not finish: " + str(state) + diagnostic
+            "Interactive context soak did not finish: "
+            + str(state)
+            + diagnostic
+            + "\nTerminal tail: "
+            + screen.decode(errors="replace")[-2000:]
         )
     finally:
         process.terminate()
@@ -315,7 +326,9 @@ class NativeContextSoakTests(unittest.TestCase):
                 self.wfile.write(payload)
 
         with tempfile.TemporaryDirectory(prefix="orichum-context-soak-") as temporary:
-            root = Path(temporary)
+            # macOS temp paths can traverse /var -> /private/var. Native trust
+            # uses the physical cwd, so seed onboarding with that same identity.
+            root = Path(temporary).resolve()
             upstream = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
             worker = threading.Thread(target=upstream.serve_forever, daemon=True)
             worker.start()

@@ -2254,16 +2254,45 @@ def _prepare_provider_account(
         diagnostics.emit(f"{label} authentication")
         diagnostics.emit("  ✓ Already configured")
     repair_credential_modes(auth_dir)
-    compatible = tuple(
-        item
+    authenticated = {
+        item.path.name: item
         for item in list_credentials(auth_dir)
-        if (
-            item.provider == auth_type
-            and not item.disabled
-            and item.path.name not in assigned
-        )
+        if item.provider == auth_type and not item.disabled
+    }
+    compatible = tuple(
+        item for ref, item in authenticated.items() if ref not in assigned
     )
     if credential is None and not compatible:
+        registered = tuple(
+            account for account in accounts
+            if account.credential_ref in authenticated
+        )
+        if registered:
+            # OAuth can overwrite the credential's routing metadata. Restore
+            # active registrations before returning to configuration.
+            for account in registered:
+                item = authenticated[account.credential_ref]
+                if account.state == "active" and (
+                    item.prefix != account.routing_prefix
+                    or item.priority != account.priority
+                ):
+                    _mutate_account(
+                        argparse.Namespace(
+                            account_command="priority",
+                            selector=account.id,
+                            priority=str(account.priority),
+                        ),
+                        paths,
+                        config,
+                    )
+            names = ", ".join(account.name for account in registered)
+            raise CliError(
+                "Authentication is saved. Compatible accounts are already "
+                f"registered: {names}. Use the existing account in Models. "
+                "To add another account, sign in with a different provider "
+                "identity. Manage registrations with "
+                "'orichum provider account --help'."
+            )
         raise CliError(
             "authentication completed, but no reusable compatible account "
             "was found"

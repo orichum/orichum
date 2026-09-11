@@ -93,15 +93,23 @@ def _default_services(
             raise RoutingError("account authentication was cancelled")
         return choices[selected][1]
 
+    def prepare_account(provider: str) -> object:
+        try:
+            return orichum_cli._prepare_provider_account(
+                paths,
+                config,
+                provider,
+                chooser=choose_credential,
+            )
+        except orichum_cli.CliError as error:
+            # The launcher runs the CLI as __main__; its CliError class can
+            # differ from the imported module's. Use the shared wizard error.
+            raise RoutingError(str(error)) from error
+
     return ConfigureServices(
         load_snapshot=load_configuration_snapshot,
         refresh_snapshot=load_configuration_snapshot,
-        prepare_account=lambda provider: orichum_cli._prepare_provider_account(
-            paths,
-            config,
-            provider,
-            chooser=choose_credential,
-        ),
+        prepare_account=prepare_account,
         apply_draft=lambda snapshot, draft: orichum_cli._apply_configuration_draft(
             paths,
             config,
@@ -473,7 +481,11 @@ def _accounts_menu(
         if provider_index == BACK:
             return draft
         provider = names[provider_index]
-    prepared = services.prepare_account(provider)
+    try:
+        prepared = services.prepare_account(provider)
+    except RoutingError as error:
+        io.show(str(error))
+        return draft
     io.show("Authentication is saved securely and can be reused if you cancel.")
     name = io.text("Account name", prepared.suggested_name)
     if primary is not None:

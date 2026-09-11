@@ -473,6 +473,38 @@ class ConfigureWizardTests(unittest.TestCase):
             io.shown,
         )
 
+    def test_account_preparation_error_returns_to_wizard_without_changes(self) -> None:
+        from integrations.common import configure_wizard, orichum_cli
+
+        config = SimpleNamespace(
+            documents={"providers": {"providers": {"anthropic": {}}}},
+        )
+        ui = ScriptedUI(["Accounts", "Add an account", "Anthropic", "Exit"])
+        defaults = configure_wizard._default_services({}, config, ui)
+        services = replace(self.services(), prepare_account=defaults.prepare_account)
+        message = "Authentication is saved. Account is already registered: Work Claude."
+        with mock.patch.object(
+            orichum_cli,
+            "_prepare_provider_account",
+            side_effect=orichum_cli.CliError(message),
+        ):
+            status = run_configure(
+                {},
+                config,
+                Path("/work/acme"),
+                io=ui,
+                services=services,
+            )
+
+        self.assertEqual(status, 0)
+        self.assertIn(message, ui.shown)
+        self.assertEqual(ui.text_prompts, [])
+        self.assertEqual(ui.choice_titles.count("What do you want to change?"), 2)
+        dashboards = [
+            rows for title, rows in ui.sections if title == "Orichum configuration"
+        ]
+        self.assertEqual(dict(dashboards[-1])["Changes"], "None")
+
     def test_accounts_menu_only_shows_guided_actions_and_clear_handoff(self) -> None:
         io = ScriptedUI(["Accounts", "Manage existing accounts", "Exit"])
 

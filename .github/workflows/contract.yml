@@ -29,6 +29,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Runner mirrors may reject HTTP; use HTTPS for package downloads.
+          sudo find /etc/apt -type f \
+            \( -name '*.list' -o -name '*.sources' -o -name '*mirrors.txt' \) \
+            -exec sed -i 's|http://|https://|g' {} +
           sudo apt-get update
           sudo apt-get install --yes jq ripgrep
 

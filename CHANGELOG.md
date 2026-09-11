@@ -4,6 +4,13 @@ All notable Orichum changes are recorded here.
 
 ## Unreleased
 
+## 0.1.0-rc.24 - 2026-09-11
+
+### Fixed
+
+- Recognize repeated login to an already registered provider account, restore
+  its routing metadata, and keep account setup open with actionable guidance.
+
 ## 0.1.0-rc.23 - 2026-09-09
 
 ### Fixed

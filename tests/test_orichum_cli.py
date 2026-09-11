@@ -2737,6 +2737,68 @@ class OrichumCliTests(unittest.TestCase):
         self.assertNotIn("work@example.com", stdout)
         self.assertNotIn("DO-NOT-PRINT", stdout)
 
+    def test_repeated_login_restores_registered_account_routing(self) -> None:
+        config_home, credential = self.provision_account_runtime()
+        status, _, stderr = self.run_cli(
+            "provider", "account", "add", "Work Claude", "anthropic",
+            credential.name, "shared", "--priority", "secondary",
+        )
+        self.assertEqual(status, 0, stderr)
+        before = orichum_cli.load_accounts(config_home / "accounts.json")
+
+        def authenticate(*_arguments, **_kwargs):
+            document = json.loads(credential.read_text())
+            document.pop("prefix")
+            document["priority"] = 100
+            document["access_token"] = "REFRESHED-DO-NOT-PRINT"
+            credential.write_text(json.dumps(document))
+            credential.chmod(0o644)
+            return 0
+
+        with (
+            mock.patch.object(orichum_cli, "_interactive_terminal", return_value=True),
+            mock.patch.object(orichum_cli, "_run_external", side_effect=authenticate),
+            mock.patch("builtins.input", return_value="1"),
+        ):
+            status, stdout, stderr = self.run_cli("provider", "configure")
+
+        self.assertEqual(status, 2)
+        self.assertIn("already registered: Work Claude", stderr)
+        self.assertIn("different provider identity", stderr)
+        self.assertNotIn(credential.name, stdout + stderr)
+        self.assertNotIn("DO-NOT-PRINT", stdout + stderr)
+        self.assertEqual(orichum_cli.load_accounts(config_home / "accounts.json"), before)
+        refreshed = json.loads(credential.read_text())
+        self.assertEqual(refreshed["prefix"], before[0].routing_prefix)
+        self.assertEqual(refreshed["priority"], 50)
+        self.assertEqual(refreshed["access_token"], "REFRESHED-DO-NOT-PRINT")
+        self.assertEqual(stat.S_IMODE(credential.stat().st_mode), 0o600)
+
+    def test_new_login_with_registered_account_prepares_new_credential(self) -> None:
+        config_home, credential = self.provision_account_runtime()
+        status, _, stderr = self.run_cli(
+            "provider", "account", "add", "Work Claude", "anthropic",
+            credential.name, "shared",
+        )
+        self.assertEqual(status, 0, stderr)
+        before = orichum_cli.load_accounts(config_home / "accounts.json")
+        new_credential = credential.with_name("claude-other.json")
+
+        def authenticate(*_arguments, **_kwargs):
+            new_credential.write_text(json.dumps({"type": "claude"}))
+            new_credential.chmod(0o600)
+            return 0
+
+        with (
+            mock.patch.dict(os.environ, self.environment, clear=False),
+            mock.patch.object(orichum_cli, "_run_external", side_effect=authenticate),
+        ):
+            paths, config = orichum_cli._load()
+            pending = orichum_cli._prepare_provider_account(paths, config, "anthropic")
+
+        self.assertEqual(pending.credential_ref, new_credential.name)
+        self.assertEqual(orichum_cli.load_accounts(config_home / "accounts.json"), before)
+
     def test_prepare_provider_account_does_not_register_it(self) -> None:
         config_home, credential = self.provision_account_runtime()
 
